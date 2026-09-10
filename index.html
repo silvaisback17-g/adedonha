@@ -227,6 +227,23 @@
     user-select:none;
   }
   .chip.on{ border-color:var(--pencil); background:var(--pencil); color:#fff; }
+  .avatar-scroll-row{
+    display:flex; flex-wrap:nowrap; gap:9px;
+    overflow-x:auto; -webkit-overflow-scrolling:touch;
+    padding:4px 2px 12px;
+    margin-bottom:16px;
+  }
+  .avatar-chip{
+    flex-shrink:0;
+    width:52px; height:52px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:1.5rem;
+    border:2px solid var(--paper-line);
+    border-radius:50%;
+    cursor:pointer;
+    user-select:none;
+  }
+  .avatar-chip.on{ border-color:var(--pencil); background:var(--pencil); }
   .add-category-row{ display:flex; gap:8px; margin-bottom:18px; }
   .add-category-row input{ margin-bottom:0; flex:1; }
   .add-category-row button{
@@ -379,6 +396,12 @@
     font-weight:700; font-size:1.05rem;
   }
   .chat-header button{ background:none; border:none; font-size:1.3rem; cursor:pointer; color:var(--ink); }
+  .slow-mode-badge{
+    font-size:.6rem; text-transform:uppercase; letter-spacing:1px;
+    font-weight:400; color:var(--ink-soft); margin-left:8px;
+  }
+  .chat-avatar{ margin-right:4px; }
+  .player-avatar{ margin-right:6px; font-size:1.15rem; }
   .chat-messages{
     flex:1; overflow-y:auto; padding:16px 20px;
     display:flex; flex-direction:column; gap:10px;
@@ -387,6 +410,19 @@
   .chat-msg .chat-name{ font-weight:700; color:var(--pencil); }
   .chat-msg.own .chat-name{ color:var(--stamp-blue); }
   .chat-time{ font-size:.75rem; color:var(--ink-soft); margin-left:6px; }
+  .chat-msg-system{ font-style:italic; }
+  .chat-system-name{ color:#e6c229; font-weight:700; }
+  .chat-system-offline{ color:var(--danger); font-weight:700; }
+
+  .chat-quick-reactions{
+    display:flex; gap:4px; padding:8px 16px;
+    overflow-x:auto; border-top:1px solid var(--paper-line);
+  }
+  .quick-emoji{
+    font-size:1.5rem; background:none; border:none; cursor:pointer;
+    padding:4px 6px; flex-shrink:0; line-height:1;
+  }
+  .quick-emoji:active{ transform:scale(1.2); }
   .chat-input-row{
     display:flex; gap:10px; padding:14px 16px; border-top:1px solid var(--paper-line);
   }
@@ -419,6 +455,8 @@
     <div class="card">
       <label for="input-name">Seu nome</label>
       <input type="text" id="input-name" maxlength="16" placeholder="Ex: Gustavo">
+      <label>Escolha seu avatar</label>
+      <div class="avatar-scroll-row" id="avatar-picker"></div>
       <div class="row">
         <button class="btn btn-primary" id="btn-goto-create">Criar sala</button>
         <button class="btn btn-ghost" id="btn-goto-join">Entrar na sala</button>
@@ -571,7 +609,8 @@
       <h2 id="final-winner" style="font-family:Georgia,serif; color:var(--pencil);"></h2>
       <ul class="score-list" id="final-list" style="text-align:left; margin-top:14px;"></ul>
     </div>
-    <button class="btn btn-primary" id="btn-back-home">Voltar ao início</button>
+    <button class="btn btn-primary" id="btn-play-again" style="display:none;">Jogar de novo (mesmo grupo)</button>
+    <button class="btn btn-ghost" id="btn-back-home">Voltar ao início</button>
   </div>
 
 </div>
@@ -586,10 +625,23 @@
 </button>
 <div class="chat-panel" id="chat-panel">
   <div class="chat-header">
-    <span>Chat da sala</span>
+    <span>Chat da sala <span class="slow-mode-badge">Slow Mode</span></span>
     <button id="chat-close-btn">✕</button>
   </div>
   <div class="chat-messages" id="chat-messages"></div>
+  <div class="chat-quick-reactions" id="chat-quick-reactions">
+    <button class="quick-emoji" data-emoji="😂">😂</button>
+    <button class="quick-emoji" data-emoji="😭">😭</button>
+    <button class="quick-emoji" data-emoji="😎">😎</button>
+    <button class="quick-emoji" data-emoji="🔥">🔥</button>
+    <button class="quick-emoji" data-emoji="👏">👏</button>
+    <button class="quick-emoji" data-emoji="😱">😱</button>
+    <button class="quick-emoji" data-emoji="🤔">🤔</button>
+    <button class="quick-emoji" data-emoji="👍">👍</button>
+    <button class="quick-emoji" data-emoji="🎉">🎉</button>
+    <button class="quick-emoji" data-emoji="😅">😅</button>
+    <button class="quick-emoji" data-emoji="💀">💀</button>
+  </div>
   <div class="chat-input-row">
     <input type="text" id="chat-input" maxlength="200" placeholder="Escreva uma mensagem...">
     <button class="btn btn-primary" id="chat-send-btn">Enviar</button>
@@ -671,6 +723,12 @@ const firebaseConfig = {
 const CATEGORY_POOL = ["Nome","Animal","Cor","Fruta","Objeto","País","Profissão","Comida","Filme/Série","Marca"];
 const LETTERS = "ABCDEFGHIJLMNOPQRSTUV".split(""); // sem K,W,X,Y,Z (mais raras em PT-BR)
 const TEMPO_BLOQUEIO_STOP_SEGUNDOS = 20; /*TEMPO DO BLOQUEIO*/ // segundos travado no início da rodada antes de liberar o botão STOP
+const TEMPO_OFFLINE_SEGUNDOS = 15; /*TEMPO OFFLINE AQUI*/ // segundos desconectado antes de ser removido automaticamente da sala
+const CHAT_SLOW_MODE_MS = 5000; // intervalo mínimo entre mensagens de um mesmo jogador no chat
+const AVATAR_POOL = ["🦊","🐱","🐶","🐼","🦁","🐸","🐧","🦄","🐵","🐯",
+  "😎","🥶","😈","🥷","👑","🐺","🐉","🦅","🦂","🦈",
+  "👽","🤖","💀","👻","👾","🗿","💎","🔥","⚡","🎭",
+  "🧙","🧛","🦹","🦸","🎃","🤠"];
 
 let firebaseReady = false;
 let db = null;
@@ -726,6 +784,9 @@ const state = {
   answers: {},          // respostas locais da rodada atual (por categoria)
   invalidMarks: {},      // marcações de "inválido" feitas pelo host na tela de revisão
   leavingVoluntarily: false, // true quando o próprio jogador decidiu sair/voltar ao início
+  processingOfflineRemoval: new Set(), // evita remover o mesmo jogador duas vezes em paralelo
+  playerAvatar: null,     // emoji escolhido pelo jogador
+  lastChatSentAt: 0,      // controla o slow mode do chat (5s entre mensagens)
 };
 
 /* ============================================================================
@@ -794,6 +855,26 @@ function validateName(){
 }
 
 /* ============================================================================
+   SELETOR DE AVATAR
+============================================================================ */
+state.playerAvatar = AVATAR_POOL[0];
+function renderAvatarPicker(){
+  const wrap = document.getElementById("avatar-picker");
+  wrap.innerHTML = "";
+  AVATAR_POOL.forEach(avatar=>{
+    const chip = document.createElement("div");
+    chip.className = "avatar-chip" + (avatar === state.playerAvatar ? " on" : "");
+    chip.textContent = avatar;
+    chip.onclick = ()=>{
+      state.playerAvatar = avatar;
+      renderAvatarPicker();
+    };
+    wrap.appendChild(chip);
+  });
+}
+renderAvatarPicker();
+
+/* ============================================================================
    CRIAR SALA
 ============================================================================ */
 document.getElementById("btn-create-room").onclick = async ()=>{
@@ -835,6 +916,7 @@ document.getElementById("btn-create-room").onclick = async ()=>{
       players: {
         [playerId]: {
           name: state.playerName,
+          avatar: state.playerAvatar,
           isHost: true,
           ready: false,
           status: "online",
@@ -900,6 +982,7 @@ document.getElementById("btn-join-room").onclick = async ()=>{
 
     await db.ref(`rooms/${roomId}/players/${playerId}`).set({
       name: state.playerName,
+      avatar: state.playerAvatar,
       isHost: false,
       ready: false,
       status: "online",
@@ -932,9 +1015,10 @@ function setupPresence(roomId, playerId){
     if (snap.val() === true){
       // Ao (re)conectar: garante que este jogador aparece como online
       // e registra o que deve acontecer se a conexão cair (onDisconnect).
-      playerRef.update({ connected:true, status:"online" });
+      playerRef.update({ connected:true, status:"online", disconnectedAt:null });
       playerRef.child("connected").onDisconnect().set(false);
       playerRef.child("status").onDisconnect().set("desconectado");
+      playerRef.child("disconnectedAt").onDisconnect().set(firebase.database.ServerValue.TIMESTAMP);
       updateConnectionBanner(true);
     } else {
       updateConnectionBanner(false);
@@ -987,11 +1071,18 @@ function setupChat(roomId){
 function appendChatMessage(msg){
   const messagesEl = document.getElementById("chat-messages");
   const div = document.createElement("div");
-  div.className = "chat-msg" + (msg.playerId === state.playerId ? " own" : "");
   const time = msg.timestamp ? new Date(msg.timestamp) : new Date();
   const hh = String(time.getHours()).padStart(2,"0");
   const mm = String(time.getMinutes()).padStart(2,"0");
-  div.innerHTML = `<span class="chat-name">${escapeHtml(msg.name)}:</span> ${escapeHtml(msg.text)} <span class="chat-time">${hh}:${mm}</span>`;
+
+  if (msg.system){
+    div.className = "chat-msg chat-msg-system";
+    div.innerHTML = `<span class="chat-system-name">${escapeHtml(msg.targetName)}</span> está <span class="chat-system-offline">offline</span> <span class="chat-time">${hh}:${mm}</span>`;
+  } else {
+    div.className = "chat-msg" + (msg.playerId === state.playerId ? " own" : "");
+    div.innerHTML = `<span class="chat-avatar">${msg.avatar||"🙂"}</span><span class="chat-name">${escapeHtml(msg.name)}:</span> ${escapeHtml(msg.text)} <span class="chat-time">${hh}:${mm}</span>`;
+  }
+
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
@@ -1020,21 +1111,51 @@ document.getElementById("chat-close-btn").onclick = ()=>{
   document.getElementById("chat-panel").classList.remove("open");
 };
 
+function canSendChat(){
+  return (Date.now() - state.lastChatSentAt) >= CHAT_SLOW_MODE_MS;
+}
+function setChatSendingEnabled(enabled){
+  document.getElementById("chat-send-btn").disabled = !enabled;
+  document.querySelectorAll(".quick-emoji").forEach(b => b.disabled = !enabled);
+}
+function startChatCooldown(){
+  state.lastChatSentAt = Date.now();
+  setChatSendingEnabled(false);
+  setTimeout(()=> setChatSendingEnabled(true), CHAT_SLOW_MODE_MS);
+}
+
 function sendChatMessage(){
+  if (!canSendChat()) return;
   const input = document.getElementById("chat-input");
   const text = input.value.trim();
   if (!text || !state.roomId) return;
   db.ref(`rooms/${state.roomId}/chat`).push({
     playerId: state.playerId,
     name: state.playerName,
+    avatar: state.playerAvatar,
     text: text,
     timestamp: firebase.database.ServerValue.TIMESTAMP
   });
   input.value = "";
+  startChatCooldown();
 }
 document.getElementById("chat-send-btn").onclick = sendChatMessage;
 document.getElementById("chat-input").addEventListener("keydown", (e)=>{
   if (e.key === "Enter") sendChatMessage();
+});
+
+document.querySelectorAll(".quick-emoji").forEach(btn=>{
+  btn.onclick = ()=>{
+    if (!state.roomId || !canSendChat()) return;
+    db.ref(`rooms/${state.roomId}/chat`).push({
+      playerId: state.playerId,
+      name: state.playerName,
+      avatar: state.playerAvatar,
+      text: btn.dataset.emoji,
+      timestamp: firebase.database.ServerValue.TIMESTAMP
+    });
+    startChatCooldown();
+  };
 });
 
 /* ============================================================================
@@ -1058,6 +1179,48 @@ async function kickPlayer(playerId){
   const name = room.players[playerId] ? room.players[playerId].name : "jogador";
   if (!confirm(`Expulsar ${name} da sala?`)) return;
   await removePlayerAndMaybeDeleteRoom(state.roomId, playerId);
+}
+
+/* ============================================================================
+   REMOÇÃO AUTOMÁTICA DE JOGADORES OFFLINE HÁ MUITO TEMPO
+   Roda periodicamente (ver startOfflineWatch). Só o HOST executa a checagem,
+   pra não haver duas remoções concorrentes do mesmo jogador.
+============================================================================ */
+let offlineCheckInterval = null;
+
+function startOfflineWatch(){
+  clearInterval(offlineCheckInterval);
+  offlineCheckInterval = setInterval(()=>{
+    if (state.isHost && state.currentRoomData){
+      checkStaleOfflinePlayers(state.currentRoomData);
+    }
+  }, 3000);
+}
+
+async function checkStaleOfflinePlayers(room){
+  const now = serverNow();
+  const entries = Object.entries(room.players || {});
+  for (const [pid, p] of entries){
+    if (p.connected) continue;
+    if (!p.disconnectedAt) continue;
+    if (state.processingOfflineRemoval.has(pid)) continue;
+    if ((now - p.disconnectedAt) < TEMPO_OFFLINE_SEGUNDOS * 1000) continue;
+
+    state.processingOfflineRemoval.add(pid);
+    await announceOfflinePlayer(p.name);
+    await removePlayerAndMaybeDeleteRoom(state.roomId, pid);
+    state.processingOfflineRemoval.delete(pid);
+  }
+}
+
+async function announceOfflinePlayer(playerName){
+  if (!state.roomId) return;
+  await db.ref(`rooms/${state.roomId}/chat`).push({
+    system: true,
+    targetName: playerName,
+    text: "offline",
+    timestamp: firebase.database.ServerValue.TIMESTAMP
+  });
 }
 
 /* ============================================================================
@@ -1105,6 +1268,7 @@ function enterRoom(roomId, playerId, isHost){
   state.unsubscribers.push(()=> roomRef.off("value", onRoomUpdate));
 
   setupChat(roomId);
+  startOfflineWatch();
 
   showScreen("screen-lobby");
 }
@@ -1134,6 +1298,7 @@ function onRoomUpdate(snap){
   // Roteia a tela conforme o status central da sala (fonte única de verdade)
   if (room.status !== lastStatus){
     lastStatus = room.status;
+    if (room.status === "lobby")     showScreen("screen-lobby");
     if (room.status === "countdown") runCountdown();
     if (room.status === "playing")   enterGameScreen(room);
     if (room.status === "reveal")    enterRevealScreen(room);
@@ -1165,7 +1330,7 @@ function renderLobby(room){
     else tags += p.ready ? `<span class="tag tag-ready">pronto</span>` : `<span class="tag tag-wait">aguardando</span>`;
     const kickBtn = (state.isHost && id !== state.playerId)
       ? `<button class="btn-sm btn-danger" data-kick="${id}" style="margin-left:8px;">expulsar</button>` : "";
-    li.innerHTML = `<span><span class="dot ${p.connected?'dot-on':'dot-off'}"></span><span class="player-name">${escapeHtml(p.name)}</span></span><span>${tags}${kickBtn}</span>`;
+    li.innerHTML = `<span><span class="dot ${p.connected?'dot-on':'dot-off'}"></span><span class="player-avatar">${p.avatar||"🙂"}</span><span class="player-name">${escapeHtml(p.name)}</span></span><span>${tags}${kickBtn}</span>`;
     list.appendChild(li);
   });
   list.querySelectorAll("[data-kick]").forEach(btn=>{
@@ -1550,7 +1715,7 @@ function renderScoreboard(room){
     const kickBtn = (state.isHost && pid !== state.playerId)
       ? `<button class="btn-sm btn-danger" data-kick="${pid}" style="margin-left:8px;">expulsar</button>` : "";
     const li = document.createElement("li");
-    li.innerHTML = `<span><span class="rank">${i+1}º</span>${escapeHtml(p.name)}</span>
+    li.innerHTML = `<span><span class="rank">${i+1}º</span><span class="player-avatar">${p.avatar||"🙂"}</span>${escapeHtml(p.name)}</span>
                      <span><span class="points">${p.score||0} <span class="hint" style="margin:0; display:inline;">(+${roundPts})</span></span>${kickBtn}</span>`;
     list.appendChild(li);
   });
@@ -1587,10 +1752,32 @@ function enterFinalScreen(room){
   list.innerHTML = "";
   ranked.forEach(([pid,p], i)=>{
     const li = document.createElement("li");
-    li.innerHTML = `<span><span class="rank">${i+1}º</span>${escapeHtml(p.name)}</span><span class="points">${p.score||0} pts</span>`;
+    li.innerHTML = `<span><span class="rank">${i+1}º</span><span class="player-avatar">${p.avatar||"🙂"}</span>${escapeHtml(p.name)}</span><span class="points">${p.score||0} pts</span>`;
     list.appendChild(li);
   });
+
+  document.getElementById("btn-play-again").style.display = state.isHost ? "block" : "none";
 }
+
+async function playAgain(){
+  if (!state.isHost) return;
+  const room = state.currentRoomData;
+  const updates = {
+    status: "lobby",
+    currentRound: 0,
+    currentLetter: null,
+    usedLetters: {},
+    rounds: null,
+    stoppedBy: null
+  };
+  Object.keys(room.players || {}).forEach(pid=>{
+    updates[`players/${pid}/score`] = 0;
+    updates[`players/${pid}/ready`] = false;
+    updates[`players/${pid}/status`] = "online";
+  });
+  await db.ref("rooms/" + state.roomId).update(updates);
+}
+document.getElementById("btn-play-again").onclick = playAgain;
 
 document.getElementById("btn-back-home").onclick = async ()=>{
   if (state.roomId && state.playerId){
@@ -1610,13 +1797,17 @@ function goHome(){
   if (state.roomRef) state.roomRef.off();
   state.roomId = null; state.playerId = null; state.isHost = false;
   state.leavingVoluntarily = false;
+  state.processingOfflineRemoval.clear();
   lastStatus = null;
+  clearInterval(offlineCheckInterval);
 
   document.getElementById("chat-toggle-btn").style.display = "none";
   document.getElementById("chat-panel").classList.remove("open");
   document.getElementById("chat-messages").innerHTML = "";
   chatUnread = 0;
   updateChatBadge();
+  state.lastChatSentAt = 0;
+  setChatSendingEnabled(true);
 
   showScreen("screen-home");
 }

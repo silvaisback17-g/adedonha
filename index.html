@@ -590,6 +590,12 @@
       <button class="btn btn-primary" id="btn-confirm-scores" style="display:none;">Confirmar pontuação</button>
       <p class="hint center" id="reveal-wait-msg" style="display:none;">Aguardando o host validar as respostas...</p>
     </div>
+
+    <div class="card" id="reveal-ai-verify-card">
+      <label>Texto para conferência (ex: colar numa IA)</label>
+      <textarea id="ai-verify-text" readonly rows="7" style="width:100%; font-family:inherit; font-size:.95rem; padding:12px; border:1px solid var(--paper-line); background:var(--paper); color:var(--ink); border-radius:var(--radius); resize:vertical;"></textarea>
+      <button class="btn btn-ghost" id="btn-copy-ai-text" style="margin-top:12px;">Copiar texto</button>
+    </div>
   </div>
 
   <!-- ================= SCOREBOARD ================= -->
@@ -1645,7 +1651,55 @@ async function renderRevealTable(room){
   document.getElementById("btn-confirm-scores").style.display = state.isHost ? "block" : "none";
   document.getElementById("reveal-wait-msg").style.display = state.isHost ? "none" : "block";
   document.getElementById("reveal-hint").style.display = state.isHost ? "block" : "none";
+
+  buildAIVerificationText(room, answers);
 }
+
+/* ============================================================================
+   TEXTO PRONTO PARA CONFERÊNCIA (ex: colar numa IA para checar as respostas)
+   Formato exato pedido:
+   Letra: C
+   Categorias: Nome, Animal, Comida, Cidade, Objeto
+   Jogador 1: Carlos | Cachorro | Cadeira | Campinas | Celular
+   Jogador 2: ...
+============================================================================ */
+function buildAIVerificationText(room, answers){
+  const aiCard = document.getElementById("reveal-ai-verify-card");
+  aiCard.style.display = state.isHost ? "block" : "none";
+  if (!state.isHost) return; // esse texto é só para o host ver
+
+  const categories = room.settings.categories;
+  const playerIds = Object.keys(room.players || {});
+
+  let text = `Letra: ${room.currentLetter}\n`;
+  text += `Categorias: ${categories.join(", ")}\n`;
+
+  playerIds.forEach((pid)=>{
+    const playerName = room.players[pid] ? room.players[pid].name : "Jogador";
+    const values = categories.map((cat, catIdx)=>{
+      const val = (answers[pid] && answers[pid][catIdx]) ? answers[pid][catIdx].trim() : "";
+      return val || "-";
+    });
+    text += `${playerName}: ${values.join(" | ")}\n`;
+  });
+
+  document.getElementById("ai-verify-text").value = text.trim();
+}
+
+document.getElementById("btn-copy-ai-text").onclick = ()=>{
+  const textarea = document.getElementById("ai-verify-text");
+  textarea.select();
+  textarea.setSelectionRange(0, 999999);
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(textarea.value).catch(()=> document.execCommand("copy"));
+  } else {
+    document.execCommand("copy");
+  }
+  const btn = document.getElementById("btn-copy-ai-text");
+  const original = btn.textContent;
+  btn.textContent = "Copiado!";
+  setTimeout(()=> btn.textContent = original, 1500);
+};
 
 document.getElementById("btn-confirm-scores").onclick = async ()=>{
   const room = state.currentRoomData;

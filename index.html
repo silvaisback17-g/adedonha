@@ -728,7 +728,6 @@ const firebaseConfig = {
 
 const CATEGORY_POOL = ["Nome","Animal","Cor","Fruta","Objeto","País","Profissão","Comida","Filme/Série","Marca"];
 const LETTERS = "ABCDEFGHIJLMNOPQRSTUV".split(""); // sem K,W,X,Y,Z (mais raras em PT-BR)
-const TEMPO_BLOQUEIO_STOP_SEGUNDOS = 20; /*TEMPO DO BLOQUEIO*/ // segundos travado no início da rodada antes de liberar o botão STOP
 const TEMPO_OFFLINE_SEGUNDOS = 15; /*TEMPO OFFLINE AQUI*/ // segundos desconectado antes de ser removido automaticamente da sala
 const CHAT_SLOW_MODE_MS = 5000; // intervalo mínimo entre mensagens de um mesmo jogador no chat
 const AVATAR_POOL = ["🦊","🐱","🐶","🐼","🦁","🐸","🐧","🦄","🐵","🐯",
@@ -1526,13 +1525,14 @@ function enterGameScreen(room){
       state.answers[idx] = inp.value;
       // salva a resposta privada do jogador (só ele pode ler/escrever aqui)
       db.ref(`rooms/${state.roomId}/rounds/${room.currentRound}/answers/${state.playerId}/${idx}`).set(inp.value);
+      updateStopButtonState(room); // libera o STOP na hora se completou tudo
     });
   });
 
   document.getElementById("game-wait-msg").style.display = "none";
   const stopBtnInit = document.getElementById("btn-stop");
   stopBtnInit.disabled = true;
-  stopBtnInit.textContent = `Aguarde ${TEMPO_BLOQUEIO_STOP_SEGUNDOS}s para usar o STOP`;
+  stopBtnInit.textContent = "Preencha todos os campos para liberar o STOP";
 
   clearInterval(gameTimerInterval);
   gameTimerInterval = setInterval(()=> tickTimer(room), 250);
@@ -1553,19 +1553,10 @@ function tickTimer(room){
   timerEl.className = "timer" + (remainingSec <= 10 ? " low" : "");
   document.getElementById("game-timer-bar").style.width = `${(remainingMs/room.roundDurationMs)*100}%`;
 
-  // Bloqueio temporário do STOP no início da rodada, para evitar cliques
-  // impulsivos/palhaçada assim que a rodada começa.
+  // O STOP libera quando o tempo mínimo de bloqueio passar OU quando o
+  // jogador já tiver preenchido todos os campos — o que vier primeiro.
   if (remainingMs > 0){
-    const elapsedMs = serverNow() - room.roundStartAt;
-    const stopBtn = document.getElementById("btn-stop");
-    if (elapsedMs < TEMPO_BLOQUEIO_STOP_SEGUNDOS * 1000){
-      const unlockInSec = Math.ceil((TEMPO_BLOQUEIO_STOP_SEGUNDOS * 1000 - elapsedMs) / 1000);
-      stopBtn.disabled = true;
-      stopBtn.textContent = `Aguarde ${unlockInSec}s para usar o STOP`;
-    } else {
-      stopBtn.disabled = false;
-      stopBtn.textContent = "STOP!";
-    }
+    updateStopButtonState(room);
   }
 
   if (remainingMs <= 0){
@@ -1586,6 +1577,25 @@ function lockAnswers(){
   document.querySelectorAll("#game-categories input").forEach(i => i.disabled = true);
   document.getElementById("btn-stop").disabled = true;
   document.getElementById("game-wait-msg").style.display = "block";
+}
+
+// Verifica se o jogador já preencheu todas as categorias da rodada.
+function areAllCategoriesFilled(){
+  const inputs = document.querySelectorAll("#game-categories input");
+  if (inputs.length === 0) return false;
+  return Array.from(inputs).every(inp => inp.value.trim().length > 0);
+}
+
+// Libera o STOP só quando o jogador já preencheu todos os campos.
+function updateStopButtonState(room){
+  const stopBtn = document.getElementById("btn-stop");
+  if (areAllCategoriesFilled()){
+    stopBtn.disabled = false;
+    stopBtn.textContent = "STOP!";
+  } else {
+    stopBtn.disabled = true;
+    stopBtn.textContent = "Preencha todos os campos para liberar o STOP";
+  }
 }
 
 document.getElementById("btn-stop").onclick = async ()=>{

@@ -413,6 +413,8 @@
   .chat-msg-system{ font-style:italic; }
   .chat-system-name{ color:#e6c229; font-weight:700; }
   .chat-system-offline{ color:var(--danger); font-weight:700; }
+  .chat-warning-label{ color:var(--danger); font-weight:700; }
+  .chat-warning-text{ color:var(--danger); font-weight:700; }
 
   .chat-quick-reactions{
     display:flex; gap:4px; padding:8px 16px;
@@ -730,6 +732,7 @@ const CATEGORY_POOL = ["Nome","Animal","Cor","Fruta","Objeto","País","Profissã
 const LETTERS = "ABCDEFGHIJLMNOPQRSTUV".split(""); // sem K,W,X,Y,Z (mais raras em PT-BR)
 const TEMPO_OFFLINE_SEGUNDOS = 15; /*TEMPO OFFLINE AQUI*/ // segundos desconectado antes de ser removido automaticamente da sala
 const CHAT_SLOW_MODE_MS = 5000; // intervalo mínimo entre mensagens de um mesmo jogador no chat
+const SALA_TEMPO_MAXIMO_MINUTOS = 30; /*TEMPO MAXIMO DA SALA*/ // minutos até a sala fechar e ser apagada automaticamente
 const AVATAR_POOL = ["🦊","🐱","🐶","🐼","🦁","🐸","🐧","🦄","🐵","🐯",
   "😎","🥶","😈","🥷","👑","🐺","🐉","🦅","🦂","🦈",
   "👽","🤖","💀","👻","👾","🗿","💎","🔥","⚡","🎭",
@@ -1080,7 +1083,10 @@ function appendChatMessage(msg){
   const hh = String(time.getHours()).padStart(2,"0");
   const mm = String(time.getMinutes()).padStart(2,"0");
 
-  if (msg.system){
+  if (msg.warning){
+    div.className = "chat-msg chat-msg-system";
+    div.innerHTML = `<span class="chat-warning-label">AVISO:</span> <span class="chat-warning-text">${escapeHtml(msg.text)}</span> <span class="chat-time">${hh}:${mm}</span>`;
+  } else if (msg.system){
     div.className = "chat-msg chat-msg-system";
     div.innerHTML = `<span class="chat-system-name">${escapeHtml(msg.targetName)}</span> está <span class="chat-system-offline">offline</span> <span class="chat-time">${hh}:${mm}</span>`;
   } else {
@@ -1229,6 +1235,61 @@ async function announceOfflinePlayer(playerName){
 }
 
 /* ============================================================================
+   FECHAMENTO AUTOMÁTICO DA SALA
+   A sala fecha e é apagada do Firebase sozinha depois de
+   SALA_TEMPO_MAXIMO_MINUTOS (30 min por padrão), contados a partir de
+   "createdAt". Só o HOST checa e dispara os avisos/fechamento, pra não
+   duplicar mensagens no chat quando há mais de um cliente do host aberto.
+============================================================================ */
+let roomCloseCheckInterval = null;
+
+function startRoomCloseWatch(){
+  clearInterval(roomCloseCheckInterval);
+  roomCloseCheckInterval = setInterval(()=>{
+    if (state.isHost && state.currentRoomData){
+      checkRoomExpiration(state.currentRoomData);
+    }
+  }, 5000);
+}
+
+async function sendRoomWarningMessage(text){
+  if (!state.roomId) return;
+  await db.ref(`rooms/${state.roomId}/chat`).push({
+    warning: true,
+    text: text,
+    timestamp: firebase.database.ServerValue.TIMESTAMP
+  });
+}
+
+async function checkRoomExpiration(room){
+  if (!room.createdAt) return;
+
+  const totalMs = SALA_TEMPO_MAXIMO_MINUTOS * 60 * 1000;
+  const elapsedMs = serverNow() - room.createdAt;
+  const warnings = room.closeWarnings || {};
+
+  // avisos a cada 10 minutos, mostrando quanto tempo falta
+  if (elapsedMs >= 10*60*1000 && !warnings.w20){
+    await sendRoomWarningMessage("Faltam 20 minutos para a sala fechar.");
+    await db.ref(`rooms/${state.roomId}/closeWarnings/w20`).set(true);
+  }
+  if (elapsedMs >= 20*60*1000 && !warnings.w10){
+    await sendRoomWarningMessage("Faltam 10 minutos para a sala fechar.");
+    await db.ref(`rooms/${state.roomId}/closeWarnings/w10`).set(true);
+  }
+  // aviso final, 5 segundos antes do fechamento de verdade
+  if (elapsedMs >= (totalMs - 5000) && !warnings.wFinal){
+    await sendRoomWarningMessage("A sala vai fechar em 5 segundos!");
+    await db.ref(`rooms/${state.roomId}/closeWarnings/wFinal`).set(true);
+  }
+  // fechamento e exclusão automática
+  if (elapsedMs >= totalMs){
+    clearInterval(roomCloseCheckInterval);
+    await db.ref(`rooms/${state.roomId}`).remove();
+  }
+}
+
+/* ============================================================================
    TRANSFERÊNCIA AUTOMÁTICA DE HOST
    Qualquer cliente conectado observa: se o host atual está desconectado,
    o jogador conectado com o "joinedAt" mais antigo assume via transaction
@@ -1274,6 +1335,7 @@ function enterRoom(roomId, playerId, isHost){
 
   setupChat(roomId);
   startOfflineWatch();
+  startRoomCloseWatch();
 
   showScreen("screen-lobby");
 }
@@ -1864,6 +1926,7 @@ function goHome(){
   state.processingOfflineRemoval.clear();
   lastStatus = null;
   clearInterval(offlineCheckInterval);
+  clearInterval(roomCloseCheckInterval);
 
   document.getElementById("chat-toggle-btn").style.display = "none";
   document.getElementById("chat-panel").classList.remove("open");

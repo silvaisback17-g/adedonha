@@ -768,7 +768,7 @@ const firebaseConfig = {
     },
     "leaderboard": {
       ".read": true,
-      ".indexOn": "totalScore",
+      ".indexOn": ["totalScore"],
       "$uid": {
         ".write": "auth != null && $uid === auth.uid"
       }

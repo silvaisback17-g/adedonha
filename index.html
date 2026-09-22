@@ -10,6 +10,7 @@
 ====================================================================== -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 
 <style>
   :root{
@@ -86,6 +87,14 @@
     font-size:.95rem;
     margin-bottom:30px;
     letter-spacing:1px;
+  }
+  .version-tag{
+    position:fixed;
+    bottom:8px; left:12px;
+    font-size:.7rem;
+    color:var(--ink-soft);
+    opacity:.6;
+    z-index:40;
   }
 
   .card{
@@ -244,6 +253,15 @@
     user-select:none;
   }
   .avatar-chip.on{ border-color:var(--pencil); background:var(--pencil); }
+  .avatar-img{ width:100%; height:100%; border-radius:50%; object-fit:cover; }
+  .avatar-inline-img{ width:1.1rem; height:1.1rem; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:6px; }
+  .avatar-inline-img-chat{ width:1rem; height:1rem; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:4px; }
+  .recent-room-btn{
+    display:flex; justify-content:space-between; align-items:center;
+    width:100%; padding:12px 14px; margin-bottom:8px;
+    background:var(--paper); border:1px solid var(--paper-line); border-radius:var(--radius);
+    font-family:inherit; font-size:.95rem; cursor:pointer; color:var(--ink);
+  }
   .add-category-row{ display:flex; gap:8px; margin-bottom:18px; }
   .add-category-row input{ margin-bottom:0; flex:1; }
   .add-category-row button{
@@ -438,6 +456,7 @@
 
   <h1 class="brand">Adedonha</h1>
   <div class="brand-sub">— MULTIPLAYER ONLINE —</div>
+  <span class="version-tag">v1.1</span>
 
   <div id="config-warning" class="config-warning" style="display:none;"></div>
 
@@ -449,12 +468,34 @@
       </p>
       <button class="btn btn-primary" id="btn-goto-multiplayer">Multiplayer</button>
     </div>
+
+    <div class="card">
+      <span class="stamp">🏆 PLACAR GLOBAL</span>
+      <ul class="score-list" id="global-leaderboard-list" style="margin-top:14px;"></ul>
+      <p class="hint" id="global-leaderboard-empty" style="display:none; margin-top:8px;">Ainda não tem ninguém no ranking. Jogue vinculado com o Google pra ser o primeiro!</p>
+      <p class="hint" id="global-leaderboard-anon-note" style="display:none; color:var(--pencil); font-weight:700; margin-top:10px;">Jogue vinculado com uma conta Google para aumentar seu ranking no placar.</p>
+    </div>
   </div>
 
   <!-- ================= MULTIPLAYER MENU ================= -->
   <div class="screen" id="screen-mp-menu">
     <a class="back-link" data-back="screen-home">‹ voltar</a>
-    <div class="card">
+
+    <!-- Etapa 1: login (Google ou sem login) -->
+    <div class="card" id="mp-login-section">
+      <p class="hint" style="margin-top:0;">Entre com o Google para salvar seu histórico entre partidas, ou jogue sem login.</p>
+      <button class="btn btn-primary" id="btn-google-login">Entrar com Google</button>
+      <button class="btn btn-ghost" id="btn-anon-login">Jogar sem login</button>
+      <p class="error-msg" id="login-error"></p>
+    </div>
+
+    <!-- Etapa 2: nome, avatar e ações (só aparece depois do login) -->
+    <div class="card" id="mp-profile-section" style="display:none;">
+      <div id="mp-account-info" style="display:none; margin-bottom:16px;">
+        <p class="hint" id="mp-account-label" style="margin-bottom:0;"></p>
+        <p class="hint" id="mp-account-stats" style="margin-top:2px;"></p>
+        <button class="btn-sm btn-ghost" id="btn-logout" style="margin-top:6px;">Sair da conta</button>
+      </div>
       <label for="input-name">Seu nome</label>
       <input type="text" id="input-name" maxlength="16" placeholder="Ex: Gustavo">
       <label>Escolha seu avatar</label>
@@ -462,6 +503,10 @@
       <div class="row">
         <button class="btn btn-primary" id="btn-goto-create">Criar sala</button>
         <button class="btn btn-ghost" id="btn-goto-join">Entrar na sala</button>
+      </div>
+      <div id="mp-recent-rooms" style="display:none; margin-top:18px;">
+        <label>Salas recentes</label>
+        <div id="mp-recent-rooms-list"></div>
       </div>
     </div>
   </div>
@@ -507,6 +552,7 @@
     <div class="card room-code-box">
       <div class="room-code" id="lobby-room-code">-----</div>
       <div class="room-meta" id="lobby-room-meta">senha: ---- · 0/0 jogadores</div>
+      <button class="btn btn-ghost btn-sm" id="btn-copy-room-link" style="margin-top:12px;">Copiar link da sala</button>
     </div>
 
     <div class="card">
@@ -678,54 +724,66 @@ const firebaseConfig = {
 };
 
 /* ============================================================================
-   REGRAS DE SEGURANÇA SUGERIDAS PARA O FIREBASE REALTIME DATABASE
+   REGRAS DE SEGURANÇA — FIREBASE REALTIME DATABASE (com Authentication)
    ----------------------------------------------------------------------------
-   Cole isto em Console do Firebase > Realtime Database > Regras.
-   Elas impedem que um jogador:
-    - edite nome/pontuação de outro jogador,
-    - leia respostas de outros jogadores antes da rodada terminar,
-    - altere configurações que só o host pode mudar,
-    - leia/edite salas que não sejam a que ele está.
+   Cole isto em Console do Firebase > Realtime Database > Regras, substituindo
+   o que estava lá. O nó raiz da sala tem leitura/escrita liberada para
+   qualquer usuário autenticado (necessário porque criar a sala escreve tudo
+   de uma vez) — mas a pontuação continua protegida de verdade por uma regra
+   ".validate", sempre aplicada independente de qualquer permissão mais ampla
+   dada lá em cima:
+    - só o HOST pode alterar o campo "score" de qualquer jogador,
+    - só o HOST pode escrever em "rounds/{n}/scores".
+   O nó "users/{uid}" guarda as estatísticas pessoais — qualquer autenticado
+   pode LER (é o que alimenta o placar), mas só o dono da conta pode escrever
+   nos próprios dados. O nó "leaderboard/{uid}" é a versão pública/resumida
+   dessas estatísticas, usada na tela inicial — leitura é aberta pra qualquer
+   um (nem precisa estar logado pra ver o placar), escrita só pelo dono.
 
 {
   "rules": {
     "rooms": {
       "$roomId": {
-        ".read": "auth != null || true",
+        ".read": "auth != null",
+        ".write": "auth != null",
         "players": {
           "$playerId": {
-            ".write": "$playerId === auth.uid || true"
+            ".validate": "!newData.exists() || newData.child('score').val() === data.child('score').val() || root.child('rooms/' + $roomId + '/hostId').val() === auth.uid"
           }
-        },
-        "hostId": {
-          ".write": true
-        },
-        "status": { ".write": true },
-        "settings": {
-          ".write": "root.child('rooms/' + $roomId + '/hostId').val() === auth.uid || true"
         },
         "rounds": {
           "$roundNum": {
-            "answers": {
-              "$playerId": {
-                ".read": "$playerId === auth.uid || root.child('rooms/' + $roomId + '/status').val() !== 'playing' || true",
-                ".write": "$playerId === auth.uid || true"
-              }
+            "scores": {
+              ".validate": "auth != null && root.child('rooms/' + $roomId + '/hostId').val() === auth.uid"
             }
           }
         }
+      }
+    },
+    "users": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && $uid === auth.uid"
+      }
+    },
+    "leaderboard": {
+      ".read": true,
+      ".indexOn": "totalScore",
+      "$uid": {
+        ".write": "auth != null && $uid === auth.uid"
       }
     }
   }
 }
 
-   OBS: como este app não usa Firebase Authentication (para manter o fluxo
-   simples de "nome + senha da sala"), as regras acima usam "|| true" como
-   fallback documentado — ou seja, a validação forte de identidade depende
-   de você ativar o Firebase Authentication (ex: login anônimo,
-   firebase.auth().signInAnonymously()) e trocar $playerId por auth.uid.
-   Isso está fora do escopo deste arquivo único, mas é o próximo passo
-   recomendado antes de publicar o jogo publicamente.
+   Por que "players/$playerId" tem uma regra a mais (.validate): a pontuação
+   (score) só pode mudar se quem está escrevendo for o host da sala — mesmo
+   que o próprio jogador esteja atualizando outro campo do seu registro (tipo
+   "ready" ou "avatar") ao mesmo tempo, o Firebase rejeita a escrita inteira
+   se o score vier diferente do valor salvo e quem escreveu não for o host.
+
+   Se depois de colar isso algum botão do jogo voltar a dar PERMISSION_DENIED,
+   me mande a mensagem de erro exata que eu ajusto a regra correspondente.
 ============================================================================ */
 
 const CATEGORY_POOL = ["Nome","Animal","Cor","Fruta","Objeto","País","Profissão","Comida","Filme/Série","Marca"];
@@ -740,6 +798,7 @@ const AVATAR_POOL = ["🦊","🐱","🐶","🐼","🦁","🐸","🐧","🦄","�
 
 let firebaseReady = false;
 let db = null;
+let auth = null;
 
 function initFirebase(){
   const missing = Object.values(firebaseConfig).some(v => String(v).startsWith("COLE_AQUI"));
@@ -753,10 +812,13 @@ function initFirebase(){
       "Até lá, criar/entrar em salas fica desabilitado.";
     document.getElementById("btn-create-room").disabled = true;
     document.getElementById("btn-join-room").disabled = true;
+    document.getElementById("btn-google-login").disabled = true;
+    document.getElementById("btn-anon-login").disabled = true;
     return;
   }
   firebase.initializeApp(firebaseConfig);
   db = firebase.database();
+  auth = firebase.auth();
   firebaseReady = true;
 }
 initFirebase();
@@ -776,11 +838,22 @@ document.getElementById("dark-mode-toggle").onclick = ()=>{
 applyDarkMode(localStorage.getItem("adedonha_dark_mode") === "1");
 
 /* ============================================================================
+   LINK DIRETO PARA A SALA (?sala=ID)
+============================================================================ */
+let pendingRoomIdFromLink = null;
+(function checkUrlForRoomLink(){
+  const params = new URLSearchParams(window.location.search);
+  const sala = params.get("sala");
+  if (sala) pendingRoomIdFromLink = sala.trim().toUpperCase();
+})();
+
+/* ============================================================================
    ESTADO LOCAL
 ============================================================================ */
 const state = {
   playerId: null,
   playerName: "",
+  authUser: null,        // usuário autenticado (Google ou anônimo)
   roomId: null,
   roomPassword: null,
   isHost: false,
@@ -817,12 +890,6 @@ function genRoomId(){
   for (let i=0;i<5;i++) id += chars[Math.floor(Math.random()*chars.length)];
   return id;
 }
-function getStoredPlayerId(roomId){
-  return localStorage.getItem("adedonha_pid_" + roomId);
-}
-function storePlayerId(roomId, pid){
-  localStorage.setItem("adedonha_pid_" + roomId, pid);
-}
 function showError(elId, msg){
   const el = document.getElementById(elId);
   el.textContent = msg;
@@ -834,6 +901,13 @@ function clearError(elId){
 function requireFirebase(errElId){
   if (!firebaseReady){
     showError(errElId, "O Firebase ainda não foi configurado neste app (veja o aviso no topo da tela).");
+    return false;
+  }
+  return true;
+}
+function requireAuth(errElId){
+  if (!state.authUser){
+    showError(errElId, "Entre com Google ou sem login antes de continuar.");
     return false;
   }
   return true;
@@ -863,12 +937,40 @@ function validateName(){
 }
 
 /* ============================================================================
+   AVATAR — helper para renderizar emoji OU foto do Google (avatar:"photo:<url>")
+============================================================================ */
+function avatarHtml(avatar, context){
+  // context: "chat" (mensagens) ou "list" (lobby/placar/final)
+  if (avatar && avatar.startsWith("photo:")){
+    const url = avatar.slice(6);
+    const cls = context === "chat" ? "avatar-inline-img-chat" : "avatar-inline-img";
+    return `<img src="${url}" class="${cls}" referrerpolicy="no-referrer" alt="">`;
+  }
+  const cls = context === "chat" ? "chat-avatar" : "player-avatar";
+  return `<span class="${cls}">${avatar || "🙂"}</span>`;
+}
+
+/* ============================================================================
    SELETOR DE AVATAR
 ============================================================================ */
 state.playerAvatar = AVATAR_POOL[0];
 function renderAvatarPicker(){
   const wrap = document.getElementById("avatar-picker");
   wrap.innerHTML = "";
+
+  // se a conta Google tiver foto de perfil, ela aparece como primeira opção
+  if (state.authUser && !state.authUser.isAnonymous && state.authUser.photoURL){
+    const photoValue = "photo:" + state.authUser.photoURL;
+    const chip = document.createElement("div");
+    chip.className = "avatar-chip" + (state.playerAvatar === photoValue ? " on" : "");
+    chip.innerHTML = `<img src="${state.authUser.photoURL}" class="avatar-img" referrerpolicy="no-referrer" alt="">`;
+    chip.onclick = ()=>{
+      state.playerAvatar = photoValue;
+      renderAvatarPicker();
+    };
+    wrap.appendChild(chip);
+  }
+
   AVATAR_POOL.forEach(avatar=>{
     const chip = document.createElement("div");
     chip.className = "avatar-chip" + (avatar === state.playerAvatar ? " on" : "");
@@ -883,11 +985,237 @@ function renderAvatarPicker(){
 renderAvatarPicker();
 
 /* ============================================================================
+   LOGIN — Google ou sem login (anônimo)
+   ----------------------------------------------------------------------------
+   A identidade do jogador (state.playerId) passa a ser sempre o auth.uid do
+   Firebase Authentication — seja de uma conta Google (fixo pra sempre) ou de
+   uma sessão anônima (fixa nesse navegador até o cache ser limpo). Isso
+   substitui o antigo UUID aleatório salvo no localStorage.
+============================================================================ */
+async function signInWithGoogle(){
+  clearError("login-error");
+  try{
+    const provider = new firebase.auth.GoogleAuthProvider();
+    await auth.signInWithPopup(provider);
+  }catch(e){
+    showError("login-error", "Não foi possível entrar com Google: " + e.message);
+  }
+}
+async function signInAsGuest(){
+  clearError("login-error");
+  try{
+    await auth.signInAnonymously();
+  }catch(e){
+    showError("login-error", "Não foi possível entrar sem login: " + e.message);
+  }
+}
+document.getElementById("btn-google-login").onclick = signInWithGoogle;
+document.getElementById("btn-anon-login").onclick = signInAsGuest;
+document.getElementById("btn-logout").onclick = async ()=>{
+  await auth.signOut();
+};
+
+function updateLoginUI(user){
+  const loginSection = document.getElementById("mp-login-section");
+  const profileSection = document.getElementById("mp-profile-section");
+  const accountInfo = document.getElementById("mp-account-info");
+
+  if (!user){
+    loginSection.style.display = "block";
+    profileSection.style.display = "none";
+    loadGlobalLeaderboard();
+    return;
+  }
+
+  loginSection.style.display = "none";
+  profileSection.style.display = "block";
+
+  if (user.isAnonymous){
+    accountInfo.style.display = "none";
+  } else {
+    accountInfo.style.display = "block";
+    document.getElementById("mp-account-label").textContent = `Logado com Google: ${user.displayName || user.email || ""}`;
+    document.getElementById("mp-account-stats").textContent = "";
+    if (!document.getElementById("input-name").value && user.displayName){
+      document.getElementById("input-name").value = user.displayName;
+    }
+    loadPlayerStats(user.uid);
+  }
+
+  renderAvatarPicker();
+  loadRecentRooms(user.uid);
+  loadGlobalLeaderboard();
+
+  if (pendingRoomIdFromLink){
+    document.getElementById("join-roomid").value = pendingRoomIdFromLink;
+    let noteEl = document.getElementById("mp-link-invite-note");
+    if (!noteEl){
+      noteEl = document.createElement("p");
+      noteEl.id = "mp-link-invite-note";
+      noteEl.className = "hint";
+      noteEl.style.color = "var(--pencil)";
+      noteEl.style.fontWeight = "700";
+      document.getElementById("input-name").insertAdjacentElement("beforebegin", noteEl);
+    }
+    noteEl.textContent = `Convite recebido para a sala ${pendingRoomIdFromLink} — digite seu nome, escolha o avatar e toque em "Entrar na sala".`;
+  }
+}
+
+if (firebaseReady){
+  auth.onAuthStateChanged((user)=>{
+    state.authUser = user;
+    updateLoginUI(user);
+  });
+}
+
+/* ============================================================================
+   ESTATÍSTICAS DO JOGADOR (users/{uid}/stats)
+============================================================================ */
+async function loadPlayerStats(uid){
+  try{
+    const snap = await db.ref(`users/${uid}/stats`).get();
+    const stats = snap.val();
+    const label = document.getElementById("mp-account-stats");
+    if (stats){
+      label.textContent = `Partidas: ${stats.gamesPlayed || 0} · Vitórias: ${stats.wins || 0}`;
+    } else {
+      label.textContent = "Partidas: 0 · Vitórias: 0";
+    }
+  }catch(e){ /* sem permissão ainda configurada ou offline — ignora silenciosamente */ }
+}
+
+async function recordPlayerStats(room){
+  if (!state.authUser) return;
+  const uid = state.authUser.uid;
+  const me = room.players[uid];
+  if (!me) return;
+
+  const ranked = Object.entries(room.players).sort((a,b)=> (b[1].score||0) - (a[1].score||0));
+  const isWinner = ranked.length > 0 && ranked[0][0] === uid;
+  let updatedStats = null;
+
+  try{
+    const result = await db.ref(`users/${uid}/stats`).transaction(current=>{
+      const cur = current || { gamesPlayed: 0, wins: 0, totalScore: 0 };
+      cur.gamesPlayed = (cur.gamesPlayed || 0) + 1;
+      cur.wins = (cur.wins || 0) + (isWinner ? 1 : 0);
+      cur.totalScore = (cur.totalScore || 0) + (me.score || 0);
+      return cur;
+    });
+    updatedStats = result.snapshot.val();
+
+    await db.ref(`users/${uid}/profile`).update({
+      name: state.playerName,
+      avatar: state.playerAvatar,
+      isAnonymous: state.authUser.isAnonymous,
+      lastPlayedAt: firebase.database.ServerValue.TIMESTAMP
+    });
+
+    // o placar global (visível na tela inicial pra todo mundo) só recebe
+    // contas Google — sessões anônimas não têm identidade estável entre
+    // dispositivos, então não faz sentido rankear
+    if (!state.authUser.isAnonymous && updatedStats){
+      await db.ref(`leaderboard/${uid}`).set({
+        name: state.playerName,
+        avatar: state.playerAvatar,
+        gamesPlayed: updatedStats.gamesPlayed,
+        wins: updatedStats.wins,
+        totalScore: updatedStats.totalScore
+      });
+    }
+  }catch(e){ /* estatísticas são um extra — não deve travar o fim de jogo se falhar */ }
+}
+
+/* ============================================================================
+   SALAS RECENTES (users/{uid}/recentRooms)
+   Como toda sala se apaga sozinha depois de SALA_TEMPO_MAXIMO_MINUTOS, essa
+   lista só é realmente útil pra voltar numa sala de que você acabou de sair.
+============================================================================ */
+async function saveRecentRoom(uid, roomId){
+  try{
+    await db.ref(`users/${uid}/recentRooms/${roomId}`).set({
+      roomId: roomId,
+      lastJoinedAt: firebase.database.ServerValue.TIMESTAMP
+    });
+  }catch(e){ /* não crítico */ }
+}
+
+async function loadRecentRooms(uid){
+  const wrap = document.getElementById("mp-recent-rooms");
+  const list = document.getElementById("mp-recent-rooms-list");
+  try{
+    const snap = await db.ref(`users/${uid}/recentRooms`).limitToLast(5).get();
+    const rooms = snap.val();
+    if (!rooms){
+      wrap.style.display = "none";
+      return;
+    }
+    const sorted = Object.values(rooms).sort((a,b)=> (b.lastJoinedAt||0) - (a.lastJoinedAt||0));
+    list.innerHTML = "";
+    sorted.forEach(r=>{
+      const btn = document.createElement("button");
+      btn.className = "recent-room-btn";
+      btn.innerHTML = `<span>${r.roomId}</span><span class="hint" style="margin:0;">entrar</span>`;
+      btn.onclick = ()=>{
+        showScreen("screen-join");
+        document.getElementById("join-roomid").value = r.roomId;
+        document.getElementById("join-password").focus();
+      };
+      list.appendChild(btn);
+    });
+    wrap.style.display = "block";
+  }catch(e){
+    wrap.style.display = "none";
+  }
+}
+
+/* ============================================================================
+   PLACAR GLOBAL — visível na tela inicial, sem precisar entrar em nenhuma sala
+   Só entram contas logadas com Google (ver recordPlayerStats). Sessões sem
+   login mostram um aviso convidando a entrar com Google.
+============================================================================ */
+async function loadGlobalLeaderboard(){
+  const list = document.getElementById("global-leaderboard-list");
+  const emptyMsg = document.getElementById("global-leaderboard-empty");
+  const anonNote = document.getElementById("global-leaderboard-anon-note");
+
+  anonNote.style.display = (!state.authUser || state.authUser.isAnonymous) ? "block" : "none";
+
+  try{
+    const snap = await db.ref("leaderboard").orderByChild("totalScore").limitToLast(10).get();
+    const entries = [];
+    snap.forEach(child=>{ entries.push(child.val()); });
+    entries.reverse(); // do maior pro menor (limitToLast já traz em ordem crescente)
+
+    if (entries.length === 0){
+      list.innerHTML = "";
+      emptyMsg.style.display = "block";
+      return;
+    }
+    emptyMsg.style.display = "none";
+
+    const medals = ["🥇","🥈","🥉"];
+    list.innerHTML = "";
+    entries.forEach((p, i)=>{
+      const medal = medals[i] || `${i+1}º`;
+      const li = document.createElement("li");
+      li.innerHTML = `<span>${medal} ${avatarHtml(p.avatar, "list")}${escapeHtml(p.name)}</span>
+                       <span class="points">Partidas: ${p.gamesPlayed||0} · Pontuação: ${p.totalScore||0}</span>`;
+      list.appendChild(li);
+    });
+  }catch(e){
+    // sem permissão configurada ainda ou offline — falha silenciosamente
+  }
+}
+loadGlobalLeaderboard();
+
+/* ============================================================================
    CRIAR SALA
 ============================================================================ */
 document.getElementById("btn-create-room").onclick = async ()=>{
   clearError("create-error");
   if (!requireFirebase("create-error")) return;
+  if (!requireAuth("create-error")) return;
 
   const password = document.getElementById("create-password").value.trim();
   const maxPlayers = parseInt(document.getElementById("create-maxplayers").value, 10);
@@ -898,12 +1226,11 @@ document.getElementById("btn-create-room").onclick = async ()=>{
 
   try{
     const roomId = genRoomId();
-    const playerId = crypto.randomUUID();
+    const playerId = state.authUser.uid;
     state.playerId = playerId;
     state.roomId = roomId;
     state.roomPassword = password;
     state.isHost = true;
-    storePlayerId(roomId, playerId);
 
     const defaultCategories = CATEGORY_POOL.slice(0,5);
 
@@ -949,6 +1276,7 @@ document.getElementById("btn-create-room").onclick = async ()=>{
 document.getElementById("btn-join-room").onclick = async ()=>{
   clearError("join-error");
   if (!requireFirebase("join-error")) return;
+  if (!requireAuth("join-error")) return;
 
   const roomId = document.getElementById("join-roomid").value.trim().toUpperCase();
   const password = document.getElementById("join-password").value.trim();
@@ -967,16 +1295,16 @@ document.getElementById("btn-join-room").onclick = async ()=>{
 
     const players = room.players || {};
     const playerCount = Object.keys(players).length;
+    const playerId = state.authUser.uid;
 
-    // Reconexão: mesmo nome usado antes nesta sala neste dispositivo?
-    const storedPid = getStoredPlayerId(roomId);
-    if (storedPid && players[storedPid]){
-      state.playerId = storedPid;
+    // Reconexão: essa conta já está na lista de jogadores dessa sala?
+    if (players[playerId]){
+      state.playerId = playerId;
       state.roomId = roomId;
       state.roomPassword = password;
-      state.isHost = !!players[storedPid].isHost;
-      await db.ref(`rooms/${roomId}/players/${storedPid}`).update({ connected:true, status:"online" });
-      enterRoom(roomId, storedPid, state.isHost);
+      state.isHost = !!players[playerId].isHost;
+      await db.ref(`rooms/${roomId}/players/${playerId}`).update({ connected:true, status:"online" });
+      enterRoom(roomId, playerId, state.isHost);
       return;
     }
 
@@ -984,9 +1312,6 @@ document.getElementById("btn-join-room").onclick = async ()=>{
 
     const nameTaken = Object.values(players).some(p => p.name.toLowerCase() === state.playerName.toLowerCase());
     if (nameTaken){ showError("join-error","Esse nome já está sendo usado nesta sala."); return; }
-
-    const playerId = crypto.randomUUID();
-    storePlayerId(roomId, playerId);
 
     await db.ref(`rooms/${roomId}/players/${playerId}`).set({
       name: state.playerName,
@@ -1049,6 +1374,30 @@ function updateConnectionBanner(connected){
 function serverNow(){ return Date.now() + state.serverOffset; }
 
 /* ============================================================================
+   SONS — gerados na hora via Web Audio API, sem precisar de arquivo de áudio
+============================================================================ */
+function playBeep(frequency, durationMs, type){
+  try{
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type || "sine";
+    osc.frequency.value = frequency;
+    gain.gain.setValueAtTime(0.18, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationMs/1000);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + durationMs/1000);
+    setTimeout(()=> ctx.close().catch(()=>{}), durationMs + 150);
+  }catch(e){ /* áudio pode falhar em alguns navegadores — não trava o jogo */ }
+}
+function playRoundStartSound(){ playBeep(740, 220, "triangle"); }
+function playStopSound(){ playBeep(220, 350, "sawtooth"); }
+function playCountdownTickSound(){ playBeep(880, 90, "square"); }
+
+/* ============================================================================
    CHAT DA SALA
    Fica liberado do lobby até o fim da partida (sem bloqueio durante as
    rodadas). Mensagens ficam em rooms/{roomId}/chat, sincronizadas em tempo
@@ -1091,7 +1440,7 @@ function appendChatMessage(msg){
     div.innerHTML = `<span class="chat-system-name">${escapeHtml(msg.targetName)}</span> está <span class="chat-system-offline">offline</span> <span class="chat-time">${hh}:${mm}</span>`;
   } else {
     div.className = "chat-msg" + (msg.playerId === state.playerId ? " own" : "");
-    div.innerHTML = `<span class="chat-avatar">${msg.avatar||"🙂"}</span><span class="chat-name">${escapeHtml(msg.name)}:</span> ${escapeHtml(msg.text)} <span class="chat-time">${hh}:${mm}</span>`;
+    div.innerHTML = `${avatarHtml(msg.avatar, "chat")}<span class="chat-name">${escapeHtml(msg.name)}:</span> ${escapeHtml(msg.text)} <span class="chat-time">${hh}:${mm}</span>`;
   }
 
   messagesEl.appendChild(div);
@@ -1337,6 +1686,8 @@ function enterRoom(roomId, playerId, isHost){
   startOfflineWatch();
   startRoomCloseWatch();
 
+  if (state.authUser) saveRecentRoom(state.authUser.uid, roomId);
+
   showScreen("screen-lobby");
 }
 
@@ -1397,7 +1748,7 @@ function renderLobby(room){
     else tags += p.ready ? `<span class="tag tag-ready">pronto</span>` : `<span class="tag tag-wait">aguardando</span>`;
     const kickBtn = (state.isHost && id !== state.playerId)
       ? `<button class="btn-sm btn-danger" data-kick="${id}" style="margin-left:8px;">expulsar</button>` : "";
-    li.innerHTML = `<span><span class="dot ${p.connected?'dot-on':'dot-off'}"></span><span class="player-avatar">${p.avatar||"🙂"}</span><span class="player-name">${escapeHtml(p.name)}</span></span><span>${tags}${kickBtn}</span>`;
+    li.innerHTML = `<span><span class="dot ${p.connected?'dot-on':'dot-off'}"></span>${avatarHtml(p.avatar, "list")}<span class="player-name">${escapeHtml(p.name)}</span></span><span>${tags}${kickBtn}</span>`;
     list.appendChild(li);
   });
   list.querySelectorAll("[data-kick]").forEach(btn=>{
@@ -1480,6 +1831,21 @@ document.getElementById("btn-toggle-ready").onclick = ()=>{
   db.ref(`rooms/${state.roomId}/players/${state.playerId}/ready`).set(!me.ready);
 };
 
+document.getElementById("btn-copy-room-link").onclick = ()=>{
+  const link = `${window.location.origin}${window.location.pathname}?sala=${state.roomId}`;
+  const finish = (copied)=>{
+    const btn = document.getElementById("btn-copy-room-link");
+    const original = "Copiar link da sala";
+    btn.textContent = copied ? "Link copiado!" : "Não foi possível copiar";
+    setTimeout(()=> btn.textContent = original, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(link).then(()=>finish(true)).catch(()=>finish(false));
+  } else {
+    finish(false);
+  }
+};
+
 document.getElementById("lobby-rounds").onchange = (e)=>{
   if (!state.isHost) return;
   db.ref(`rooms/${state.roomId}/settings/totalRounds`).set(parseInt(e.target.value,10));
@@ -1498,7 +1864,6 @@ document.getElementById("btn-leave-room").onclick = async ()=>{
   if (state.roomId && state.playerId){
     state.leavingVoluntarily = true;
     await removePlayerAndMaybeDeleteRoom(state.roomId, state.playerId);
-    localStorage.removeItem("adedonha_pid_" + state.roomId);
   }
   goHome();
 };
@@ -1561,10 +1926,13 @@ function runCountdown(){
    TELA DE JOGO
 ============================================================================ */
 let gameTimerInterval = null;
+let lastBeepedSecond = null;
 
 function enterGameScreen(room){
   showScreen("screen-game");
   state.answers = {};
+  lastBeepedSecond = null;
+  playRoundStartSound();
   const categories = room.settings.categories;
   document.getElementById("game-round-label").textContent =
     `RODADA ${room.currentRound} DE ${room.settings.totalRounds}`;
@@ -1614,6 +1982,12 @@ function tickTimer(room){
   timerEl.textContent = `${mm}:${ss}`;
   timerEl.className = "timer" + (remainingSec <= 10 ? " low" : "");
   document.getElementById("game-timer-bar").style.width = `${(remainingMs/room.roundDurationMs)*100}%`;
+
+  // Beep nos últimos 5 segundos da rodada (uma vez por segundo, não a cada tick)
+  if (remainingSec > 0 && remainingSec <= 5 && remainingSec !== lastBeepedSecond){
+    lastBeepedSecond = remainingSec;
+    playCountdownTickSound();
+  }
 
   // O STOP libera quando o tempo mínimo de bloqueio passar OU quando o
   // jogador já tiver preenchido todos os campos — o que vier primeiro.
@@ -1675,6 +2049,7 @@ function enterRevealScreen(room){
   clearInterval(gameTimerInterval);
   showScreen("screen-reveal");
   state.invalidMarks = {};
+  playStopSound();
   renderRevealTable(room);
 }
 
@@ -1841,7 +2216,7 @@ function renderScoreboard(room){
     const kickBtn = (state.isHost && pid !== state.playerId)
       ? `<button class="btn-sm btn-danger" data-kick="${pid}" style="margin-left:8px;">expulsar</button>` : "";
     const li = document.createElement("li");
-    li.innerHTML = `<span><span class="rank">${i+1}º</span><span class="player-avatar">${p.avatar||"🙂"}</span>${escapeHtml(p.name)}</span>
+    li.innerHTML = `<span><span class="rank">${i+1}º</span>${avatarHtml(p.avatar, "list")}${escapeHtml(p.name)}</span>
                      <span><span class="points">${p.score||0} <span class="hint" style="margin:0; display:inline;">(+${roundPts})</span></span>${kickBtn}</span>`;
     list.appendChild(li);
   });
@@ -1878,11 +2253,13 @@ function enterFinalScreen(room){
   list.innerHTML = "";
   ranked.forEach(([pid,p], i)=>{
     const li = document.createElement("li");
-    li.innerHTML = `<span><span class="rank">${i+1}º</span><span class="player-avatar">${p.avatar||"🙂"}</span>${escapeHtml(p.name)}</span><span class="points">${p.score||0} pts</span>`;
+    li.innerHTML = `<span><span class="rank">${i+1}º</span>${avatarHtml(p.avatar, "list")}${escapeHtml(p.name)}</span><span class="points">${p.score||0} pts</span>`;
     list.appendChild(li);
   });
 
   document.getElementById("btn-play-again").style.display = state.isHost ? "block" : "none";
+
+  recordPlayerStats(room);
 }
 
 async function playAgain(){
@@ -1909,7 +2286,6 @@ document.getElementById("btn-back-home").onclick = async ()=>{
   if (state.roomId && state.playerId){
     state.leavingVoluntarily = true;
     await removePlayerAndMaybeDeleteRoom(state.roomId, state.playerId);
-    localStorage.removeItem("adedonha_pid_" + state.roomId);
   }
   goHome();
 };
@@ -1937,6 +2313,7 @@ function goHome(){
   setChatSendingEnabled(true);
 
   showScreen("screen-home");
+  loadGlobalLeaderboard();
 }
 function escapeHtml(str){
   const div = document.createElement("div");

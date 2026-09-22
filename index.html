@@ -456,7 +456,7 @@
 
   <h1 class="brand">Adedonha</h1>
   <div class="brand-sub">— MULTIPLAYER ONLINE —</div>
-  <span class="version-tag">v1.1</span>
+  <span class="version-tag">v1.2</span>
 
   <div id="config-warning" class="config-warning" style="display:none;"></div>
 
@@ -1396,6 +1396,7 @@ function playBeep(frequency, durationMs, type){
 function playRoundStartSound(){ playBeep(740, 220, "triangle"); }
 function playStopSound(){ playBeep(220, 350, "sawtooth"); }
 function playCountdownTickSound(){ playBeep(880, 90, "square"); }
+function playChatMessageSound(){ playBeep(520, 90, "sine"); }
 
 /* ============================================================================
    CHAT DA SALA
@@ -1413,16 +1414,34 @@ function setupChat(roomId){
   updateChatBadge();
 
   const chatRef = db.ref(`rooms/${roomId}/chat`).limitToLast(100);
-  chatRefListener = (snap)=>{
-    const msg = snap.val();
-    appendChatMessage(msg);
-    if (!document.getElementById("chat-panel").classList.contains("open") && msg.playerId !== state.playerId){
-      chatUnread++;
-      updateChatBadge();
-    }
-  };
-  chatRef.on("child_added", chatRefListener);
-  state.unsubscribers.push(()=> chatRef.off("child_added", chatRefListener));
+  const alreadyRendered = new Set();
+
+  chatRef.once("value").then(initialSnap=>{
+    initialSnap.forEach(child=>{
+      alreadyRendered.add(child.key);
+      appendChatMessage(child.val());
+    });
+    const messagesEl = document.getElementById("chat-messages");
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    // só depois do histórico inicial carregado é que passamos a tocar som
+    // e contar como "não lida" — senão a entrada na sala tocaria um monte
+    // de beeps de uma vez com o histórico antigo do chat.
+    chatRefListener = (childSnap)=>{
+      if (alreadyRendered.has(childSnap.key)) return;
+      const msg = childSnap.val();
+      appendChatMessage(msg);
+      if (msg.playerId !== state.playerId){
+        playChatMessageSound();
+        if (!document.getElementById("chat-panel").classList.contains("open")){
+          chatUnread++;
+          updateChatBadge();
+        }
+      }
+    };
+    chatRef.on("child_added", chatRefListener);
+    state.unsubscribers.push(()=> chatRef.off("child_added", chatRefListener));
+  });
 }
 
 function appendChatMessage(msg){

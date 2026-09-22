@@ -748,7 +748,7 @@ const firebaseConfig = {
         ".write": "auth != null",
         "players": {
           "$playerId": {
-            ".validate": "!newData.exists() || newData.child('score').val() === data.child('score').val() || root.child('rooms/' + $roomId + '/hostId').val() === auth.uid"
+            ".validate": "!newData.exists() || !data.exists() || newData.child('score').val() === data.child('score').val() || root.child('rooms/' + $roomId + '/hostId').val() === auth.uid"
           }
         },
         "rounds": {

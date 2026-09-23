@@ -456,7 +456,7 @@
 
   <h1 class="brand">Adedonha</h1>
   <div class="brand-sub">— MULTIPLAYER ONLINE —</div>
-  <span class="version-tag">v1.4.1</span>
+  <span class="version-tag">v1.5</span>
 
   <div id="config-warning" class="config-warning" style="display:none;"></div>
 
@@ -1713,6 +1713,36 @@ function maybeClaimHost(room, roomId){
 }
 
 /* ============================================================================
+   AUTODESTRUIÇÃO DA SALA QUANDO O ÚLTIMO CONECTADO CAI
+   ----------------------------------------------------------------------------
+   Sempre que a lista de jogadores muda, cada cliente confere: "sou eu o
+   único jogador conectado agora?". Se for, deixa registrado no Firebase um
+   onDisconnect().remove() na sala inteira — esse comando roda no SERVIDOR do
+   Firebase, então dispara mesmo que a pessoa só feche a aba sem clicar em
+   "Sair da sala". Se depois outra pessoa entrar/reconectar antes disso
+   acontecer, o comando é cancelado, senão a sala ficaria marcada pra sumir
+   por engano.
+============================================================================ */
+let roomSelfDestructRegistered = false;
+function updateRoomSelfDestructOnDisconnect(room){
+  if (!state.roomId || !room.players) return;
+
+  const connectedIds = Object.entries(room.players)
+    .filter(([id, p]) => p.connected)
+    .map(([id]) => id);
+  const iAmSoleConnected = connectedIds.length === 1 && connectedIds[0] === state.playerId;
+
+  const roomRef = db.ref(`rooms/${state.roomId}`);
+  if (iAmSoleConnected && !roomSelfDestructRegistered){
+    roomRef.onDisconnect().remove();
+    roomSelfDestructRegistered = true;
+  } else if (!iAmSoleConnected && roomSelfDestructRegistered){
+    roomRef.onDisconnect().cancel();
+    roomSelfDestructRegistered = false;
+  }
+}
+
+/* ============================================================================
    ENTRAR NA SALA (assinatura em tempo real)
 ============================================================================ */
 function enterRoom(roomId, playerId, isHost){
@@ -1756,6 +1786,7 @@ function onRoomUpdate(snap){
   state.isHost = room.hostId === state.playerId;
 
   maybeClaimHost(room, state.roomId);
+  updateRoomSelfDestructOnDisconnect(room);
 
   // Roteia a tela conforme o status central da sala (fonte única de verdade)
   if (room.status !== lastStatus){
@@ -2345,6 +2376,10 @@ document.getElementById("btn-back-home").onclick = async ()=>{
    UTILS
 ============================================================================ */
 function goHome(){
+  if (roomSelfDestructRegistered && state.roomId){
+    db.ref(`rooms/${state.roomId}`).onDisconnect().cancel();
+    roomSelfDestructRegistered = false;
+  }
   state.unsubscribers.forEach(fn=>fn());
   state.unsubscribers = [];
   if (state.roomRef) state.roomRef.off();

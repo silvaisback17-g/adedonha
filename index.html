@@ -456,7 +456,7 @@
 
   <h1 class="brand">Adedonha</h1>
   <div class="brand-sub">— MULTIPLAYER ONLINE —</div>
-  <span class="version-tag">v1.2</span>
+  <span class="version-tag">v1.4</span>
 
   <div id="config-warning" class="config-warning" style="display:none;"></div>
 
@@ -838,13 +838,20 @@ document.getElementById("dark-mode-toggle").onclick = ()=>{
 applyDarkMode(localStorage.getItem("adedonha_dark_mode") === "1");
 
 /* ============================================================================
-   LINK DIRETO PARA A SALA (?sala=ID)
+   LINK DIRETO PARA A SALA (?sala=ID&convite=TOKEN)
+   O link nunca carrega a senha em texto puro — só um token aleatório
+   vinculado à sala no Firebase. Quem abre o link tem a senha preenchida
+   automaticamente pelo app (depois de validar o token), sem ela nunca
+   aparecer na URL ou no histórico do navegador.
 ============================================================================ */
 let pendingRoomIdFromLink = null;
+let pendingInviteTokenFromLink = null;
 (function checkUrlForRoomLink(){
   const params = new URLSearchParams(window.location.search);
   const sala = params.get("sala");
+  const convite = params.get("convite");
   if (sala) pendingRoomIdFromLink = sala.trim().toUpperCase();
+  if (convite) pendingInviteTokenFromLink = convite.trim();
 })();
 
 /* ============================================================================
@@ -1046,19 +1053,36 @@ function updateLoginUI(user){
   loadRecentRooms(user.uid);
   loadGlobalLeaderboard();
 
-  if (pendingRoomIdFromLink){
-    document.getElementById("join-roomid").value = pendingRoomIdFromLink;
-    let noteEl = document.getElementById("mp-link-invite-note");
-    if (!noteEl){
-      noteEl = document.createElement("p");
-      noteEl.id = "mp-link-invite-note";
-      noteEl.className = "hint";
-      noteEl.style.color = "var(--pencil)";
-      noteEl.style.fontWeight = "700";
-      document.getElementById("input-name").insertAdjacentElement("beforebegin", noteEl);
-    }
-    noteEl.textContent = `Convite recebido para a sala ${pendingRoomIdFromLink} — digite seu nome, escolha o avatar e toque em "Entrar na sala".`;
+  if (pendingRoomIdFromLink) resolveInviteLink();
+}
+
+async function resolveInviteLink(){
+  document.getElementById("join-roomid").value = pendingRoomIdFromLink;
+
+  let passwordFilled = false;
+  if (pendingInviteTokenFromLink){
+    try{
+      const snap = await db.ref(`rooms/${pendingRoomIdFromLink}`).get();
+      const room = snap.val();
+      if (room && room.inviteTokens && room.inviteTokens[pendingInviteTokenFromLink]){
+        document.getElementById("join-password").value = room.password;
+        passwordFilled = true;
+      }
+    }catch(e){ /* sala pode ter fechado ou token inválido — segue sem preencher a senha */ }
   }
+
+  let noteEl = document.getElementById("mp-link-invite-note");
+  if (!noteEl){
+    noteEl = document.createElement("p");
+    noteEl.id = "mp-link-invite-note";
+    noteEl.className = "hint";
+    noteEl.style.color = "var(--pencil)";
+    noteEl.style.fontWeight = "700";
+    document.getElementById("input-name").insertAdjacentElement("beforebegin", noteEl);
+  }
+  noteEl.textContent = passwordFilled
+    ? `Convite recebido para a sala ${pendingRoomIdFromLink} (senha já preenchida) — digite seu nome, escolha o avatar e toque em "Entrar na sala".`
+    : `Convite recebido para a sala ${pendingRoomIdFromLink} — o link pode ter expirado, digite a senha manualmente.`;
 }
 
 if (firebaseReady){
@@ -1850,19 +1874,26 @@ document.getElementById("btn-toggle-ready").onclick = ()=>{
   db.ref(`rooms/${state.roomId}/players/${state.playerId}/ready`).set(!me.ready);
 };
 
-document.getElementById("btn-copy-room-link").onclick = ()=>{
-  const link = `${window.location.origin}${window.location.pathname}?sala=${state.roomId}`;
-  const finish = (copied)=>{
-    const btn = document.getElementById("btn-copy-room-link");
-    const original = "Copiar link da sala";
-    btn.textContent = copied ? "Link copiado!" : "Não foi possível copiar";
-    setTimeout(()=> btn.textContent = original, 1500);
-  };
-  if (navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(link).then(()=>finish(true)).catch(()=>finish(false));
-  } else {
-    finish(false);
+document.getElementById("btn-copy-room-link").onclick = async ()=>{
+  const btn = document.getElementById("btn-copy-room-link");
+  const original = "Copiar link da sala";
+  btn.textContent = "Gerando link...";
+
+  try{
+    const token = crypto.randomUUID().slice(0, 8);
+    await db.ref(`rooms/${state.roomId}/inviteTokens/${token}`).set(true);
+    const link = `${window.location.origin}${window.location.pathname}?sala=${state.roomId}&convite=${token}`;
+
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(link);
+      btn.textContent = "Link copiado!";
+    } else {
+      btn.textContent = "Não foi possível copiar";
+    }
+  }catch(e){
+    btn.textContent = "Não foi possível gerar o link";
   }
+  setTimeout(()=> btn.textContent = original, 1500);
 };
 
 document.getElementById("lobby-rounds").onchange = (e)=>{

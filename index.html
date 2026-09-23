@@ -456,7 +456,7 @@
 
   <h1 class="brand">Adedonha</h1>
   <div class="brand-sub">— MULTIPLAYER ONLINE —</div>
-  <span class="version-tag">v1.4</span>
+  <span class="version-tag">v1.4.1</span>
 
   <div id="config-warning" class="config-warning" style="display:none;"></div>
 
@@ -852,6 +852,7 @@ let pendingInviteTokenFromLink = null;
   const convite = params.get("convite");
   if (sala) pendingRoomIdFromLink = sala.trim().toUpperCase();
   if (convite) pendingInviteTokenFromLink = convite.trim();
+  if (pendingRoomIdFromLink) showScreen("screen-mp-menu");
 })();
 
 /* ============================================================================

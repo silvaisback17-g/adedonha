@@ -456,7 +456,7 @@
 
   <h1 class="brand">Adedonha</h1>
   <div class="brand-sub">— MULTIPLAYER ONLINE —</div>
-  <span class="version-tag">v2.1</span>
+  <span class="version-tag">v2.2</span>
 
   <div id="config-warning" class="config-warning" style="display:none;"></div>
 
@@ -1152,13 +1152,17 @@ function updateLoginUI(user){
 
   const nameInput = document.getElementById("input-name");
   if (user.isAnonymous){
-    accountInfo.style.display = "none";
+    accountInfo.style.display = "block";
+    document.getElementById("mp-account-label").textContent = "Jogando sem login (não aparece no placar global).";
+    document.getElementById("mp-account-stats").textContent = "";
+    document.getElementById("btn-logout").textContent = "Entrar numa conta";
     nameInput.readOnly = false;
     nameInput.placeholder = "Ex: Gustavo";
   } else {
     accountInfo.style.display = "block";
     document.getElementById("mp-account-label").textContent = `Logado como: ${user.displayName || ""}`;
     document.getElementById("mp-account-stats").textContent = "";
+    document.getElementById("btn-logout").textContent = "Sair da conta";
     // numa conta própria, o nome do jogador é sempre o nome de usuário da conta
     nameInput.value = user.displayName || "";
     nameInput.readOnly = true;

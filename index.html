@@ -456,30 +456,12 @@
 
   <h1 class="brand">Adedonha</h1>
   <div class="brand-sub">— MULTIPLAYER ONLINE —</div>
-  <span class="version-tag">v2.0</span>
+  <span class="version-tag">v2.1</span>
 
   <div id="config-warning" class="config-warning" style="display:none;"></div>
 
   <!-- ================= HOME ================= -->
   <div class="screen active" id="screen-home">
-    <div class="card center">
-      <p style="color:var(--ink-soft); font-size:.9rem; margin-top:0;">
-        Reúna amigos, sorteie uma letra e complete as categorias antes do tempo acabar.
-      </p>
-      <button class="btn btn-primary" id="btn-goto-multiplayer">Multiplayer</button>
-    </div>
-
-    <div class="card">
-      <span class="stamp">🏆 PLACAR GLOBAL</span>
-      <ul class="score-list" id="global-leaderboard-list" style="margin-top:14px;"></ul>
-      <p class="hint" id="global-leaderboard-empty" style="display:none; margin-top:8px;">Ainda não tem ninguém no ranking. Crie uma conta pra ser o primeiro!</p>
-      <p class="hint" id="global-leaderboard-anon-note" style="display:none; color:var(--pencil); font-weight:700; margin-top:10px;">Crie uma conta ou entre numa pra aparecer no placar global.</p>
-    </div>
-  </div>
-
-  <!-- ================= MULTIPLAYER MENU ================= -->
-  <div class="screen" id="screen-mp-menu">
-    <a class="back-link" data-back="screen-home">‹ voltar</a>
 
     <!-- Etapa 1: login (conta própria usuário/senha, ou sem login) -->
     <div class="card" id="mp-login-section">
@@ -539,11 +521,18 @@
         <div id="mp-recent-rooms-list"></div>
       </div>
     </div>
+
+    <div class="card">
+      <span class="stamp">🏆 PLACAR GLOBAL</span>
+      <ul class="score-list" id="global-leaderboard-list" style="margin-top:14px;"></ul>
+      <p class="hint" id="global-leaderboard-empty" style="display:none; margin-top:8px;">Ainda não tem ninguém no ranking. Crie uma conta pra ser o primeiro!</p>
+      <p class="hint" id="global-leaderboard-anon-note" style="display:none; color:var(--pencil); font-weight:700; margin-top:10px;">Crie uma conta ou entre numa pra aparecer no placar global.</p>
+    </div>
   </div>
 
   <!-- ================= CREATE ROOM ================= -->
   <div class="screen" id="screen-create">
-    <a class="back-link" data-back="screen-mp-menu">‹ voltar</a>
+    <a class="back-link" data-back="screen-home">‹ voltar</a>
     <div class="card">
       <div class="error-msg" id="create-error"></div>
       <label for="create-password">Senha da sala</label>
@@ -564,7 +553,7 @@
 
   <!-- ================= JOIN ROOM ================= -->
   <div class="screen" id="screen-join">
-    <a class="back-link" data-back="screen-mp-menu">‹ voltar</a>
+    <a class="back-link" data-back="screen-home">‹ voltar</a>
     <div class="card">
       <div class="error-msg" id="join-error"></div>
       <label for="join-roomid">ID da sala</label>
@@ -883,7 +872,7 @@ let pendingInviteTokenFromLink = null;
   const convite = params.get("convite");
   if (sala) pendingRoomIdFromLink = sala.trim().toUpperCase();
   if (convite) pendingInviteTokenFromLink = convite.trim();
-  if (pendingRoomIdFromLink) showScreen("screen-mp-menu");
+  if (pendingRoomIdFromLink) showScreen("screen-home");
 })();
 
 /* ============================================================================
@@ -955,7 +944,6 @@ function requireAuth(errElId){
 /* ============================================================================
    HOME / MENU
 ============================================================================ */
-document.getElementById("btn-goto-multiplayer").onclick = ()=> showScreen("screen-mp-menu");
 
 document.getElementById("btn-goto-create").onclick = ()=>{
   if (!validateName()) return;
@@ -1150,6 +1138,11 @@ function updateLoginUI(user){
   if (!user){
     loginSection.style.display = "block";
     profileSection.style.display = "none";
+    const nameInput = document.getElementById("input-name");
+    nameInput.readOnly = false;
+    nameInput.value = "";
+    nameInput.placeholder = "Ex: Gustavo";
+    showAuthTab("signup");
     loadGlobalLeaderboard();
     return;
   }

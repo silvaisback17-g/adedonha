@@ -456,7 +456,7 @@
 
   <h1 class="brand">Adedonha</h1>
   <div class="brand-sub">— MULTIPLAYER ONLINE —</div>
-  <span class="version-tag">v1.5</span>
+  <span class="version-tag">v2.0</span>
 
   <div id="config-warning" class="config-warning" style="display:none;"></div>
 
@@ -472,8 +472,8 @@
     <div class="card">
       <span class="stamp">🏆 PLACAR GLOBAL</span>
       <ul class="score-list" id="global-leaderboard-list" style="margin-top:14px;"></ul>
-      <p class="hint" id="global-leaderboard-empty" style="display:none; margin-top:8px;">Ainda não tem ninguém no ranking. Jogue vinculado com o Google pra ser o primeiro!</p>
-      <p class="hint" id="global-leaderboard-anon-note" style="display:none; color:var(--pencil); font-weight:700; margin-top:10px;">Jogue vinculado com uma conta Google para aumentar seu ranking no placar.</p>
+      <p class="hint" id="global-leaderboard-empty" style="display:none; margin-top:8px;">Ainda não tem ninguém no ranking. Crie uma conta pra ser o primeiro!</p>
+      <p class="hint" id="global-leaderboard-anon-note" style="display:none; color:var(--pencil); font-weight:700; margin-top:10px;">Crie uma conta ou entre numa pra aparecer no placar global.</p>
     </div>
   </div>
 
@@ -481,12 +481,42 @@
   <div class="screen" id="screen-mp-menu">
     <a class="back-link" data-back="screen-home">‹ voltar</a>
 
-    <!-- Etapa 1: login (Google ou sem login) -->
+    <!-- Etapa 1: login (conta própria usuário/senha, ou sem login) -->
     <div class="card" id="mp-login-section">
-      <p class="hint" style="margin-top:0;">Entre com o Google para salvar seu histórico entre partidas, ou jogue sem login.</p>
-      <button class="btn btn-primary" id="btn-google-login">Entrar com Google</button>
-      <button class="btn btn-ghost" id="btn-anon-login">Jogar sem login</button>
+      <div class="row" style="margin-bottom:18px;">
+        <button class="btn btn-primary" id="tab-signup">Criar conta</button>
+        <button class="btn btn-ghost" id="tab-login">Entrar</button>
+      </div>
+
+      <!-- Criar conta -->
+      <div id="signup-form">
+        <label for="signup-username">Nome de usuário</label>
+        <input type="text" id="signup-username" maxlength="20" placeholder="Ex: Silva" autocomplete="username">
+        <p class="hint" style="margin-top:-12px;">3 a 20 letras/números, sem espaço ou acento</p>
+        <label for="signup-password">Senha</label>
+        <input type="password" id="signup-password" maxlength="64" placeholder="Mínimo 6 caracteres" autocomplete="new-password">
+        <label for="signup-confirm-password">Confirmar senha</label>
+        <input type="password" id="signup-confirm-password" maxlength="64" placeholder="Repita a senha" autocomplete="new-password">
+        <button class="btn btn-primary" id="btn-signup">Criar conta</button>
+        <p class="hint center">Já possui uma conta? <a href="#" id="link-goto-login">Entrar</a></p>
+      </div>
+
+      <!-- Entrar -->
+      <div id="login-form" style="display:none;">
+        <label for="login-username">Nome de usuário</label>
+        <input type="text" id="login-username" maxlength="20" placeholder="Ex: Silva" autocomplete="username">
+        <label for="login-password-field">Senha</label>
+        <input type="password" id="login-password-field" maxlength="64" placeholder="Sua senha" autocomplete="current-password">
+        <button class="btn btn-primary" id="btn-login-account">Entrar</button>
+        <p class="hint center">Não possui uma conta? <a href="#" id="link-goto-signup">Criar conta</a></p>
+      </div>
+
       <p class="error-msg" id="login-error"></p>
+
+      <div style="border-top:1px dashed var(--paper-line); margin:18px 0; padding-top:16px;">
+        <button class="btn btn-ghost" id="btn-anon-login">Jogar sem login</button>
+        <p class="hint" style="margin-top:4px; margin-bottom:0;">Jogando sem conta, você não aparece no placar global.</p>
+      </div>
     </div>
 
     <!-- Etapa 2: nome, avatar e ações (só aparece depois do login) -->
@@ -497,7 +527,7 @@
         <button class="btn-sm btn-ghost" id="btn-logout" style="margin-top:6px;">Sair da conta</button>
       </div>
       <label for="input-name">Seu nome</label>
-      <input type="text" id="input-name" maxlength="16" placeholder="Ex: Gustavo">
+      <input type="text" id="input-name" maxlength="20" placeholder="Ex: Gustavo">
       <label>Escolha seu avatar</label>
       <div class="avatar-scroll-row" id="avatar-picker"></div>
       <div class="row">
@@ -812,7 +842,8 @@ function initFirebase(){
       "Até lá, criar/entrar em salas fica desabilitado.";
     document.getElementById("btn-create-room").disabled = true;
     document.getElementById("btn-join-room").disabled = true;
-    document.getElementById("btn-google-login").disabled = true;
+    document.getElementById("btn-signup").disabled = true;
+    document.getElementById("btn-login-account").disabled = true;
     document.getElementById("btn-anon-login").disabled = true;
     return;
   }
@@ -861,7 +892,7 @@ let pendingInviteTokenFromLink = null;
 const state = {
   playerId: null,
   playerName: "",
-  authUser: null,        // usuário autenticado (Google ou anônimo)
+  authUser: null,        // usuário autenticado (conta própria ou anônimo)
   roomId: null,
   roomPassword: null,
   isHost: false,
@@ -915,7 +946,7 @@ function requireFirebase(errElId){
 }
 function requireAuth(errElId){
   if (!state.authUser){
-    showError(errElId, "Entre com Google ou sem login antes de continuar.");
+    showError(errElId, "Crie uma conta, entre numa conta, ou jogue sem login antes de continuar.");
     return false;
   }
   return true;
@@ -945,7 +976,8 @@ function validateName(){
 }
 
 /* ============================================================================
-   AVATAR — helper para renderizar emoji OU foto do Google (avatar:"photo:<url>")
+   AVATAR — helper para renderizar emoji OU uma foto de perfil (avatar:"photo:<url>")
+   (hoje as contas só usam emoji; o suporte a foto fica pronto pra o futuro)
 ============================================================================ */
 function avatarHtml(avatar, context){
   // context: "chat" (mensagens) ou "list" (lobby/placar/final)
@@ -966,19 +998,6 @@ function renderAvatarPicker(){
   const wrap = document.getElementById("avatar-picker");
   wrap.innerHTML = "";
 
-  // se a conta Google tiver foto de perfil, ela aparece como primeira opção
-  if (state.authUser && !state.authUser.isAnonymous && state.authUser.photoURL){
-    const photoValue = "photo:" + state.authUser.photoURL;
-    const chip = document.createElement("div");
-    chip.className = "avatar-chip" + (state.playerAvatar === photoValue ? " on" : "");
-    chip.innerHTML = `<img src="${state.authUser.photoURL}" class="avatar-img" referrerpolicy="no-referrer" alt="">`;
-    chip.onclick = ()=>{
-      state.playerAvatar = photoValue;
-      renderAvatarPicker();
-    };
-    wrap.appendChild(chip);
-  }
-
   AVATAR_POOL.forEach(avatar=>{
     const chip = document.createElement("div");
     chip.className = "avatar-chip" + (avatar === state.playerAvatar ? " on" : "");
@@ -993,22 +1012,106 @@ function renderAvatarPicker(){
 renderAvatarPicker();
 
 /* ============================================================================
-   LOGIN — Google ou sem login (anônimo)
+   LOGIN — conta própria (usuário + senha) ou sem login (anônimo)
    ----------------------------------------------------------------------------
-   A identidade do jogador (state.playerId) passa a ser sempre o auth.uid do
-   Firebase Authentication — seja de uma conta Google (fixo pra sempre) ou de
-   uma sessão anônima (fixa nesse navegador até o cache ser limpo). Isso
-   substitui o antigo UUID aleatório salvo no localStorage.
+   A identidade do jogador (state.playerId) é sempre o auth.uid do Firebase
+   Authentication — seja de uma conta própria (fixo pra sempre, recuperável
+   com usuário+senha de qualquer aparelho) ou de uma sessão anônima (fixa só
+   nesse navegador). Isso substitui o antigo UUID aleatório salvo no
+   localStorage.
+
+   COMO O "USUÁRIO + SENHA" FUNCIONA POR BAIXO DOS PANOS:
+   O Firebase não tem um sistema de "nome de usuário" pronto — só de
+   e-mail+senha. Então aqui a gente transforma o nome escolhido num e-mail
+   disfarçado (ex: "Silva" vira "silva@adedonha-contas.app") e usa o sistema
+   de Email/Senha do próprio Firebase, que:
+     - nunca guarda a senha em texto puro (fica com hash seguro, dentro do
+       Firebase, fora do alcance do frontend);
+     - verifica a senha no servidor do Firebase, não no navegador;
+     - garante nome único sozinho, de forma atômica — se duas pessoas
+       tentarem criar o mesmo nome ao mesmo tempo, o Firebase rejeita a
+       segunda tentativa automaticamente, sem risco de condição de corrida.
+   O nome digitado é normalizado (sem espaços nas pontas, minúsculo) antes de
+   virar e-mail, pra "Silva", "silva" e " SILVA " contarem como o mesmo nome.
 ============================================================================ */
-async function signInWithGoogle(){
+const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,20}$/;
+const FAKE_EMAIL_DOMAIN = "@adedonha-contas.app";
+
+function normalizeUsername(raw){
+  return raw.trim().toLowerCase();
+}
+function usernameToFakeEmail(raw){
+  return normalizeUsername(raw) + FAKE_EMAIL_DOMAIN;
+}
+
+async function signUpWithUsername(){
   clearError("login-error");
+  const usernameRaw = document.getElementById("signup-username").value.trim();
+  const password = document.getElementById("signup-password").value;
+  const confirmPassword = document.getElementById("signup-confirm-password").value;
+
+  if (!USERNAME_REGEX.test(usernameRaw)){
+    showError("login-error", "Nome de usuário deve ter de 3 a 20 letras, números ou _ (sem espaços ou acentos).");
+    return;
+  }
+  if (password.length < 6){
+    showError("login-error", "A senha precisa ter pelo menos 6 caracteres.");
+    return;
+  }
+  if (password !== confirmPassword){
+    showError("login-error", "As senhas não são iguais.");
+    return;
+  }
+
+  const btn = document.getElementById("btn-signup");
+  btn.disabled = true; btn.textContent = "Criando conta...";
+
   try{
-    const provider = new firebase.auth.GoogleAuthProvider();
-    await auth.signInWithPopup(provider);
+    const cred = await auth.createUserWithEmailAndPassword(usernameToFakeEmail(usernameRaw), password);
+    await cred.user.updateProfile({ displayName: usernameRaw });
+    await db.ref(`users/${cred.user.uid}/profile`).update({
+      name: usernameRaw,
+      isAnonymous: false,
+      createdAt: firebase.database.ServerValue.TIMESTAMP,
+      lastLogin: firebase.database.ServerValue.TIMESTAMP
+    });
+    // login automático já acontece sozinho — createUserWithEmailAndPassword já autentica
   }catch(e){
-    showError("login-error", "Não foi possível entrar com Google: " + e.message);
+    if (e.code === "auth/email-already-in-use"){
+      showError("login-error", "Esse nome de usuário já está sendo usado.");
+    } else if (e.code === "auth/weak-password"){
+      showError("login-error", "A senha precisa ter pelo menos 6 caracteres.");
+    } else {
+      showError("login-error", "Não foi possível criar a conta: " + e.message);
+    }
+  }finally{
+    btn.disabled = false; btn.textContent = "Criar conta";
   }
 }
+
+async function loginWithUsername(){
+  clearError("login-error");
+  const usernameRaw = document.getElementById("login-username").value.trim();
+  const password = document.getElementById("login-password-field").value;
+  if (!usernameRaw || !password){
+    showError("login-error", "Preencha nome de usuário e senha.");
+    return;
+  }
+
+  const btn = document.getElementById("btn-login-account");
+  btn.disabled = true; btn.textContent = "Entrando...";
+
+  try{
+    const cred = await auth.signInWithEmailAndPassword(usernameToFakeEmail(usernameRaw), password);
+    await db.ref(`users/${cred.user.uid}/profile/lastLogin`).set(firebase.database.ServerValue.TIMESTAMP);
+  }catch(e){
+    // nunca revela se o nome existe ou não — evita ataque de enumeração de contas
+    showError("login-error", "Nome de usuário ou senha incorretos.");
+  }finally{
+    btn.disabled = false; btn.textContent = "Entrar";
+  }
+}
+
 async function signInAsGuest(){
   clearError("login-error");
   try{
@@ -1017,7 +1120,23 @@ async function signInAsGuest(){
     showError("login-error", "Não foi possível entrar sem login: " + e.message);
   }
 }
-document.getElementById("btn-google-login").onclick = signInWithGoogle;
+
+// alterna entre as abas "Criar conta" e "Entrar"
+function showAuthTab(tab){
+  const isSignup = tab === "signup";
+  document.getElementById("signup-form").style.display = isSignup ? "block" : "none";
+  document.getElementById("login-form").style.display = isSignup ? "none" : "block";
+  document.getElementById("tab-signup").className = "btn " + (isSignup ? "btn-primary" : "btn-ghost");
+  document.getElementById("tab-login").className = "btn " + (isSignup ? "btn-ghost" : "btn-primary");
+  clearError("login-error");
+}
+document.getElementById("tab-signup").onclick = ()=> showAuthTab("signup");
+document.getElementById("tab-login").onclick = ()=> showAuthTab("login");
+document.getElementById("link-goto-login").onclick = (e)=>{ e.preventDefault(); showAuthTab("login"); };
+document.getElementById("link-goto-signup").onclick = (e)=>{ e.preventDefault(); showAuthTab("signup"); };
+
+document.getElementById("btn-signup").onclick = signUpWithUsername;
+document.getElementById("btn-login-account").onclick = loginWithUsername;
 document.getElementById("btn-anon-login").onclick = signInAsGuest;
 document.getElementById("btn-logout").onclick = async ()=>{
   await auth.signOut();
@@ -1038,15 +1157,18 @@ function updateLoginUI(user){
   loginSection.style.display = "none";
   profileSection.style.display = "block";
 
+  const nameInput = document.getElementById("input-name");
   if (user.isAnonymous){
     accountInfo.style.display = "none";
+    nameInput.readOnly = false;
+    nameInput.placeholder = "Ex: Gustavo";
   } else {
     accountInfo.style.display = "block";
-    document.getElementById("mp-account-label").textContent = `Logado com Google: ${user.displayName || user.email || ""}`;
+    document.getElementById("mp-account-label").textContent = `Logado como: ${user.displayName || ""}`;
     document.getElementById("mp-account-stats").textContent = "";
-    if (!document.getElementById("input-name").value && user.displayName){
-      document.getElementById("input-name").value = user.displayName;
-    }
+    // numa conta própria, o nome do jogador é sempre o nome de usuário da conta
+    nameInput.value = user.displayName || "";
+    nameInput.readOnly = true;
     loadPlayerStats(user.uid);
   }
 
@@ -1137,8 +1259,8 @@ async function recordPlayerStats(room){
     });
 
     // o placar global (visível na tela inicial pra todo mundo) só recebe
-    // contas Google — sessões anônimas não têm identidade estável entre
-    // dispositivos, então não faz sentido rankear
+    // contas próprias (usuário+senha) — sessões anônimas não têm identidade
+    // estável entre dispositivos, então não faz sentido rankear
     if (!state.authUser.isAnonymous && updatedStats){
       await db.ref(`leaderboard/${uid}`).set({
         name: state.playerName,
@@ -1196,8 +1318,8 @@ async function loadRecentRooms(uid){
 
 /* ============================================================================
    PLACAR GLOBAL — visível na tela inicial, sem precisar entrar em nenhuma sala
-   Só entram contas logadas com Google (ver recordPlayerStats). Sessões sem
-   login mostram um aviso convidando a entrar com Google.
+   Só entram contas próprias de usuário+senha (ver recordPlayerStats). Sessões
+   sem login mostram um aviso convidando a criar uma conta.
 ============================================================================ */
 async function loadGlobalLeaderboard(){
   const list = document.getElementById("global-leaderboard-list");

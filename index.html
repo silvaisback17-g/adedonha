@@ -456,7 +456,7 @@
 
   <h1 class="brand">Adedonha</h1>
   <div class="brand-sub">— MULTIPLAYER ONLINE —</div>
-  <span class="version-tag">v2.2</span>
+  <span class="version-tag">v2.3</span>
 
   <div id="config-warning" class="config-warning" style="display:none;"></div>
 
@@ -479,26 +479,42 @@
         <input type="password" id="signup-password" maxlength="64" placeholder="Mínimo 6 caracteres" autocomplete="new-password">
         <label for="signup-confirm-password">Confirmar senha</label>
         <input type="password" id="signup-confirm-password" maxlength="64" placeholder="Repita a senha" autocomplete="new-password">
+        <label for="signup-email">E-mail (opcional)</label>
+        <input type="email" id="signup-email" maxlength="80" placeholder="Pra recuperar a senha depois" autocomplete="email">
+        <p class="hint" style="margin-top:-12px;">Sem e-mail, se você esquecer a senha não tem como recuperar a conta.</p>
         <button class="btn btn-primary" id="btn-signup">Criar conta</button>
         <p class="hint center">Já possui uma conta? <a href="#" id="link-goto-login">Entrar</a></p>
       </div>
 
       <!-- Entrar -->
       <div id="login-form" style="display:none;">
-        <label for="login-username">Nome de usuário</label>
-        <input type="text" id="login-username" maxlength="20" placeholder="Ex: Silva" autocomplete="username">
+        <label for="login-username">Nome de usuário ou e-mail</label>
+        <input type="text" id="login-username" maxlength="80" placeholder="Ex: Silva" autocomplete="username">
         <label for="login-password-field">Senha</label>
         <input type="password" id="login-password-field" maxlength="64" placeholder="Sua senha" autocomplete="current-password">
         <button class="btn btn-primary" id="btn-login-account">Entrar</button>
         <p class="hint center">Não possui uma conta? <a href="#" id="link-goto-signup">Criar conta</a></p>
+        <p class="hint center">Esqueceu a senha? <a href="#" id="link-goto-forgot">Recuperar com e-mail</a></p>
+      </div>
+
+      <!-- Esqueci minha senha -->
+      <div id="forgot-form" style="display:none;">
+        <label for="forgot-email">E-mail cadastrado na conta</label>
+        <input type="email" id="forgot-email" maxlength="80" placeholder="O e-mail que você colocou ao criar a conta" autocomplete="email">
+        <p class="hint" style="margin-top:-12px;">Só funciona se você cadastrou um e-mail ao criar a conta.</p>
+        <button class="btn btn-primary" id="btn-forgot-password">Enviar link de redefinição</button>
+        <p class="hint center"><a href="#" id="link-goto-login-from-forgot">‹ voltar para Entrar</a></p>
       </div>
 
       <p class="error-msg" id="login-error"></p>
+      <p class="hint" id="login-info" style="display:none; color:var(--stamp-green); font-weight:700;"></p>
 
       <div style="border-top:1px dashed var(--paper-line); margin:18px 0; padding-top:16px;">
         <button class="btn btn-ghost" id="btn-anon-login">Jogar sem login</button>
         <p class="hint" style="margin-top:4px; margin-bottom:0;">Jogando sem conta, você não aparece no placar global.</p>
       </div>
+
+      <p class="hint center" style="margin-top:10px;"><a href="#" id="link-how-to-play">❓ Como jogar</a></p>
     </div>
 
     <!-- Etapa 2: nome, avatar e ações (só aparece depois do login) -->
@@ -507,6 +523,19 @@
         <p class="hint" id="mp-account-label" style="margin-bottom:0;"></p>
         <p class="hint" id="mp-account-stats" style="margin-top:2px;"></p>
         <button class="btn-sm btn-ghost" id="btn-logout" style="margin-top:6px;">Sair da conta</button>
+        <button class="btn-sm btn-ghost" id="btn-show-change-password" style="margin-top:6px;">Trocar senha</button>
+      </div>
+
+      <div id="change-password-form" style="display:none; margin-bottom:16px; padding-bottom:16px; border-bottom:1px dashed var(--paper-line);">
+        <label for="change-password-current">Senha atual</label>
+        <input type="password" id="change-password-current" maxlength="64" placeholder="Sua senha atual" autocomplete="current-password">
+        <label for="change-password-new">Nova senha</label>
+        <input type="password" id="change-password-new" maxlength="64" placeholder="Mínimo 6 caracteres" autocomplete="new-password">
+        <label for="change-password-confirm">Confirmar nova senha</label>
+        <input type="password" id="change-password-confirm" maxlength="64" placeholder="Repita a nova senha" autocomplete="new-password">
+        <button class="btn btn-primary" id="btn-do-change-password">Salvar nova senha</button>
+        <p class="error-msg" id="change-password-error"></p>
+        <p class="hint" id="change-password-info" style="display:none; color:var(--stamp-green); font-weight:700;"></p>
       </div>
       <label for="input-name">Seu nome</label>
       <input type="text" id="input-name" maxlength="20" placeholder="Ex: Gustavo">
@@ -690,6 +719,21 @@
 
 <!-- ===================== MODO ESCURO (sempre visível) ===================== -->
 <button class="floating-btn" id="dark-mode-toggle" title="Alternar modo escuro">🌙</button>
+
+<!-- ===================== TUTORIAL "COMO JOGAR" ===================== -->
+<div class="chat-panel" id="howtoplay-panel">
+  <div class="chat-header">
+    <span>❓ Como jogar</span>
+    <button id="howtoplay-close-btn">✕</button>
+  </div>
+  <div class="chat-messages" style="line-height:1.6;">
+    <p><strong>Objetivo:</strong> uma letra é sorteada e todo mundo tem que preencher as categorias (Nome, Animal, Cor, etc.) com uma palavra que comece com aquela letra, antes do tempo acabar.</p>
+    <p><strong>STOP:</strong> quando você terminar de preencher tudo, o botão libera e você pode apertar STOP — isso encerra a rodada pra todo mundo na hora.</p>
+    <p><strong>Pontuação:</strong> resposta válida e única = 10 pontos. Resposta válida mas repetida com outro jogador = 5 pontos. Em branco, inválida ou com letra errada = 0.</p>
+    <p><strong>Host:</strong> quem cria a sala escolhe quantas rodadas, o tempo e as categorias, além de iniciar cada rodada e validar as respostas no final.</p>
+    <p><strong>Sala:</strong> compartilhe o ID e a senha (ou o link direto) com os amigos pra eles entrarem. Uma sala fecha sozinha depois de 30 minutos ou quando fica vazia.</p>
+  </div>
+</div>
 
 <!-- ===================== CHAT (visível só quando dentro de uma sala) ===================== -->
 <button class="floating-btn" id="chat-toggle-btn" title="Chat da sala" style="display:none;">
@@ -1032,11 +1076,14 @@ function usernameToFakeEmail(raw){
   return normalizeUsername(raw) + FAKE_EMAIL_DOMAIN;
 }
 
+const EMAIL_FORMAT_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 async function signUpWithUsername(){
   clearError("login-error");
   const usernameRaw = document.getElementById("signup-username").value.trim();
   const password = document.getElementById("signup-password").value;
   const confirmPassword = document.getElementById("signup-confirm-password").value;
+  const recoveryEmail = document.getElementById("signup-email").value.trim();
 
   if (!USERNAME_REGEX.test(usernameRaw)){
     showError("login-error", "Nome de usuário deve ter de 3 a 20 letras, números ou _ (sem espaços ou acentos).");
@@ -1050,25 +1097,37 @@ async function signUpWithUsername(){
     showError("login-error", "As senhas não são iguais.");
     return;
   }
+  if (recoveryEmail && !EMAIL_FORMAT_REGEX.test(recoveryEmail)){
+    showError("login-error", "Esse e-mail não parece válido.");
+    return;
+  }
 
   const btn = document.getElementById("btn-signup");
   btn.disabled = true; btn.textContent = "Criando conta...";
 
+  // Se a pessoa informou um e-mail de verdade, a conta do Firebase usa ESSE
+  // e-mail (permite recuperar senha depois). Sem e-mail, usamos o e-mail
+  // disfarçado de sempre — mas aí não existe recuperação possível.
+  const emailForAccount = recoveryEmail ? recoveryEmail : usernameToFakeEmail(usernameRaw);
+
   try{
-    const cred = await auth.createUserWithEmailAndPassword(usernameToFakeEmail(usernameRaw), password);
+    const cred = await auth.createUserWithEmailAndPassword(emailForAccount, password);
     await cred.user.updateProfile({ displayName: usernameRaw });
     await db.ref(`users/${cred.user.uid}/profile`).update({
       name: usernameRaw,
       isAnonymous: false,
+      hasRecoveryEmail: !!recoveryEmail,
       createdAt: firebase.database.ServerValue.TIMESTAMP,
       lastLogin: firebase.database.ServerValue.TIMESTAMP
     });
     // login automático já acontece sozinho — createUserWithEmailAndPassword já autentica
   }catch(e){
     if (e.code === "auth/email-already-in-use"){
-      showError("login-error", "Esse nome de usuário já está sendo usado.");
+      showError("login-error", recoveryEmail ? "Esse e-mail já está em uso por outra conta." : "Esse nome de usuário já está sendo usado.");
     } else if (e.code === "auth/weak-password"){
       showError("login-error", "A senha precisa ter pelo menos 6 caracteres.");
+    } else if (e.code === "auth/invalid-email"){
+      showError("login-error", "Esse e-mail não parece válido.");
     } else {
       showError("login-error", "Não foi possível criar a conta: " + e.message);
     }
@@ -1079,24 +1138,52 @@ async function signUpWithUsername(){
 
 async function loginWithUsername(){
   clearError("login-error");
-  const usernameRaw = document.getElementById("login-username").value.trim();
+  const identifier = document.getElementById("login-username").value.trim();
   const password = document.getElementById("login-password-field").value;
-  if (!usernameRaw || !password){
-    showError("login-error", "Preencha nome de usuário e senha.");
+  if (!identifier || !password){
+    showError("login-error", "Preencha nome de usuário (ou e-mail) e senha.");
     return;
   }
+
+  // aceita tanto o nome de usuário quanto o e-mail de recuperação (se a
+  // pessoa cadastrou um) pra entrar na conta
+  const email = identifier.includes("@") ? identifier : usernameToFakeEmail(identifier);
 
   const btn = document.getElementById("btn-login-account");
   btn.disabled = true; btn.textContent = "Entrando...";
 
   try{
-    const cred = await auth.signInWithEmailAndPassword(usernameToFakeEmail(usernameRaw), password);
+    const cred = await auth.signInWithEmailAndPassword(email, password);
     await db.ref(`users/${cred.user.uid}/profile/lastLogin`).set(firebase.database.ServerValue.TIMESTAMP);
   }catch(e){
-    // nunca revela se o nome existe ou não — evita ataque de enumeração de contas
+    // nunca revela se o nome/e-mail existe ou não — evita ataque de enumeração de contas
     showError("login-error", "Nome de usuário ou senha incorretos.");
   }finally{
     btn.disabled = false; btn.textContent = "Entrar";
+  }
+}
+
+async function sendPasswordReset(){
+  clearError("login-error");
+  document.getElementById("login-info").style.display = "none";
+  const email = document.getElementById("forgot-email").value.trim();
+  if (!email || !EMAIL_FORMAT_REGEX.test(email)){
+    showError("login-error", "Digite um e-mail válido.");
+    return;
+  }
+
+  const btn = document.getElementById("btn-forgot-password");
+  btn.disabled = true; btn.textContent = "Enviando...";
+  try{
+    await auth.sendPasswordResetEmail(email);
+  }catch(e){
+    // mesma mensagem tanto se o e-mail existe quanto se não existe,
+    // pra não revelar quais e-mails têm conta cadastrada
+  }finally{
+    btn.disabled = false; btn.textContent = "Enviar link de redefinição";
+    const info = document.getElementById("login-info");
+    info.textContent = "Se esse e-mail estiver cadastrado numa conta, enviamos um link de redefinição de senha.";
+    info.style.display = "block";
   }
 }
 
@@ -1109,25 +1196,91 @@ async function signInAsGuest(){
   }
 }
 
-// alterna entre as abas "Criar conta" e "Entrar"
+// alterna entre "Criar conta", "Entrar" e "Esqueci minha senha"
 function showAuthTab(tab){
-  const isSignup = tab === "signup";
-  document.getElementById("signup-form").style.display = isSignup ? "block" : "none";
-  document.getElementById("login-form").style.display = isSignup ? "none" : "block";
-  document.getElementById("tab-signup").className = "btn " + (isSignup ? "btn-primary" : "btn-ghost");
-  document.getElementById("tab-login").className = "btn " + (isSignup ? "btn-ghost" : "btn-primary");
+  document.getElementById("signup-form").style.display = tab === "signup" ? "block" : "none";
+  document.getElementById("login-form").style.display = tab === "login" ? "block" : "none";
+  document.getElementById("forgot-form").style.display = tab === "forgot" ? "block" : "none";
+  document.getElementById("tab-signup").className = "btn " + (tab === "signup" ? "btn-primary" : "btn-ghost");
+  document.getElementById("tab-login").className = "btn " + (tab === "signup" ? "btn-ghost" : "btn-primary");
   clearError("login-error");
+  document.getElementById("login-info").style.display = "none";
 }
 document.getElementById("tab-signup").onclick = ()=> showAuthTab("signup");
 document.getElementById("tab-login").onclick = ()=> showAuthTab("login");
 document.getElementById("link-goto-login").onclick = (e)=>{ e.preventDefault(); showAuthTab("login"); };
 document.getElementById("link-goto-signup").onclick = (e)=>{ e.preventDefault(); showAuthTab("signup"); };
+document.getElementById("link-goto-forgot").onclick = (e)=>{ e.preventDefault(); showAuthTab("forgot"); };
+document.getElementById("link-goto-login-from-forgot").onclick = (e)=>{ e.preventDefault(); showAuthTab("login"); };
 
 document.getElementById("btn-signup").onclick = signUpWithUsername;
 document.getElementById("btn-login-account").onclick = loginWithUsername;
+document.getElementById("btn-forgot-password").onclick = sendPasswordReset;
 document.getElementById("btn-anon-login").onclick = signInAsGuest;
 document.getElementById("btn-logout").onclick = async ()=>{
   await auth.signOut();
+};
+
+/* ============================================================================
+   TROCAR SENHA (enquanto logado numa conta própria)
+   Por segurança, o Firebase exige "login recente" pra trocar a senha —
+   por isso reautenticamos com a senha atual antes de trocar.
+============================================================================ */
+document.getElementById("btn-show-change-password").onclick = ()=>{
+  const form = document.getElementById("change-password-form");
+  form.style.display = form.style.display === "none" ? "block" : "none";
+};
+
+document.getElementById("btn-do-change-password").onclick = async ()=>{
+  const errEl = "change-password-error";
+  clearError(errEl);
+  document.getElementById("change-password-info").style.display = "none";
+
+  const currentPassword = document.getElementById("change-password-current").value;
+  const newPassword = document.getElementById("change-password-new").value;
+  const confirmPassword = document.getElementById("change-password-confirm").value;
+
+  if (!currentPassword){ showError(errEl, "Digite sua senha atual."); return; }
+  if (newPassword.length < 6){ showError(errEl, "A nova senha precisa ter pelo menos 6 caracteres."); return; }
+  if (newPassword !== confirmPassword){ showError(errEl, "As senhas novas não são iguais."); return; }
+
+  const btn = document.getElementById("btn-do-change-password");
+  btn.disabled = true; btn.textContent = "Salvando...";
+
+  try{
+    const user = auth.currentUser;
+    const credential = firebase.auth.EmailAuthProvider.credential(user.email, currentPassword);
+    await user.reauthenticateWithCredential(credential);
+    await user.updatePassword(newPassword);
+
+    document.getElementById("change-password-current").value = "";
+    document.getElementById("change-password-new").value = "";
+    document.getElementById("change-password-confirm").value = "";
+    const info = document.getElementById("change-password-info");
+    info.textContent = "Senha alterada com sucesso!";
+    info.style.display = "block";
+  }catch(e){
+    if (e.code === "auth/wrong-password"){
+      showError(errEl, "Senha atual incorreta.");
+    } else if (e.code === "auth/weak-password"){
+      showError(errEl, "A nova senha precisa ter pelo menos 6 caracteres.");
+    } else {
+      showError(errEl, "Não foi possível trocar a senha: " + e.message);
+    }
+  }finally{
+    btn.disabled = false; btn.textContent = "Salvar nova senha";
+  }
+};
+
+/* ============================================================================
+   TUTORIAL "COMO JOGAR"
+============================================================================ */
+document.getElementById("link-how-to-play").onclick = (e)=>{
+  e.preventDefault();
+  document.getElementById("howtoplay-panel").classList.add("open");
+};
+document.getElementById("howtoplay-close-btn").onclick = ()=>{
+  document.getElementById("howtoplay-panel").classList.remove("open");
 };
 
 function updateLoginUI(user){
@@ -1150,12 +1303,21 @@ function updateLoginUI(user){
   loginSection.style.display = "none";
   profileSection.style.display = "block";
 
+  // reseta o formulário de trocar senha sempre que a conta logada muda
+  document.getElementById("change-password-form").style.display = "none";
+  document.getElementById("change-password-current").value = "";
+  document.getElementById("change-password-new").value = "";
+  document.getElementById("change-password-confirm").value = "";
+  clearError("change-password-error");
+  document.getElementById("change-password-info").style.display = "none";
+
   const nameInput = document.getElementById("input-name");
   if (user.isAnonymous){
     accountInfo.style.display = "block";
     document.getElementById("mp-account-label").textContent = "Jogando sem login (não aparece no placar global).";
     document.getElementById("mp-account-stats").textContent = "";
     document.getElementById("btn-logout").textContent = "Entrar numa conta";
+    document.getElementById("btn-show-change-password").style.display = "none";
     nameInput.readOnly = false;
     nameInput.placeholder = "Ex: Gustavo";
   } else {
@@ -1163,6 +1325,7 @@ function updateLoginUI(user){
     document.getElementById("mp-account-label").textContent = `Logado como: ${user.displayName || ""}`;
     document.getElementById("mp-account-stats").textContent = "";
     document.getElementById("btn-logout").textContent = "Sair da conta";
+    document.getElementById("btn-show-change-password").style.display = "inline-block";
     // numa conta própria, o nome do jogador é sempre o nome de usuário da conta
     nameInput.value = user.displayName || "";
     nameInput.readOnly = true;

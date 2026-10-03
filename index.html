@@ -174,6 +174,12 @@
   }
   .back-link:hover{ color:var(--pencil); }
 
+  /* Links de texto dentro de frases (ex: "Esqueceu a senha? Entrar") —
+     usa a cor de destaque do tema em vez do azul padrão do navegador,
+     que fica com contraste ruim no modo escuro. */
+  a{ color:var(--pencil); font-weight:700; text-decoration:underline; }
+  a:hover, a:active{ color:var(--pencil-dark); }
+
   .stamp{
     display:inline-block;
     border:2px solid var(--stamp-blue);
@@ -456,7 +462,7 @@
 
   <h1 class="brand">Adedonha</h1>
   <div class="brand-sub">— MULTIPLAYER ONLINE —</div>
-  <span class="version-tag">v2.3</span>
+  <span class="version-tag">v2.3.1</span>
 
   <div id="config-warning" class="config-warning" style="display:none;"></div>
 
@@ -481,7 +487,7 @@
         <input type="password" id="signup-confirm-password" maxlength="64" placeholder="Repita a senha" autocomplete="new-password">
         <label for="signup-email">E-mail (opcional)</label>
         <input type="email" id="signup-email" maxlength="80" placeholder="Pra recuperar a senha depois" autocomplete="email">
-        <p class="hint" style="margin-top:-12px;">Sem e-mail, se você esquecer a senha não tem como recuperar a conta.</p>
+        <p class="hint">Sem e-mail, se você esquecer a senha não tem como recuperar a conta.</p>
         <button class="btn btn-primary" id="btn-signup">Criar conta</button>
         <p class="hint center">Já possui uma conta? <a href="#" id="link-goto-login">Entrar</a></p>
       </div>
@@ -501,7 +507,7 @@
       <div id="forgot-form" style="display:none;">
         <label for="forgot-email">E-mail cadastrado na conta</label>
         <input type="email" id="forgot-email" maxlength="80" placeholder="O e-mail que você colocou ao criar a conta" autocomplete="email">
-        <p class="hint" style="margin-top:-12px;">Só funciona se você cadastrou um e-mail ao criar a conta.</p>
+        <p class="hint">Só funciona se você cadastrou um e-mail ao criar a conta.</p>
         <button class="btn btn-primary" id="btn-forgot-password">Enviar link de redefinição</button>
         <p class="hint center"><a href="#" id="link-goto-login-from-forgot">‹ voltar para Entrar</a></p>
       </div>

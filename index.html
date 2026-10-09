@@ -325,11 +325,6 @@
     vertical-align:top;
   }
   .reveal-table th{ background:#efe6d2; font-size:.82rem; text-transform:uppercase; }
-  .invalid-toggle{
-    font-size:.78rem; cursor:pointer; color:var(--danger); margin-top:4px; display:inline-block;
-    text-decoration:underline;
-  }
-  .invalid-toggle.marked{ font-weight:700; }
   td.marked-invalid{ text-decoration:line-through; color:var(--ink-soft); background:#fbeae8; }
 
   .score-list{ list-style:none; padding:0; margin:0; }
@@ -462,7 +457,7 @@
 
   <h1 class="brand">Adedonha</h1>
   <div class="brand-sub">— MULTIPLAYER ONLINE —</div>
-  <span class="version-tag">v2.3.1</span>
+  <span class="version-tag">v2.4</span>
 
   <div id="config-warning" class="config-warning" style="display:none;"></div>
 
@@ -688,9 +683,7 @@
       <div style="overflow-x:auto; margin-top:14px;">
         <table class="reveal-table" id="reveal-table"></table>
       </div>
-      <p class="hint" id="reveal-hint">Toque numa resposta para marcá-la como inválida.</p>
-      <button class="btn btn-primary" id="btn-confirm-scores" style="display:none;">Confirmar pontuação</button>
-      <p class="hint center" id="reveal-wait-msg" style="display:none;">Aguardando o host validar as respostas...</p>
+      <p class="hint center" id="reveal-status-msg">Revelando respostas...</p>
     </div>
 
     <div class="card" id="reveal-ai-verify-card">
@@ -860,6 +853,8 @@ const LETTERS = "ABCDEFGHIJLMNOPQRSTUV".split(""); // sem K,W,X,Y,Z (mais raras 
 const TEMPO_OFFLINE_SEGUNDOS = 15; /*TEMPO OFFLINE AQUI*/ // segundos desconectado antes de ser removido automaticamente da sala
 const CHAT_SLOW_MODE_MS = 5000; // intervalo mínimo entre mensagens de um mesmo jogador no chat
 const SALA_TEMPO_MAXIMO_MINUTOS = 30; /*TEMPO MAXIMO DA SALA*/ // minutos até a sala fechar e ser apagada automaticamente
+const GEMINI_API_KEY = "AQ.Ab8RN6JWU6rfSgN-pYMIfoBb1-O389OLAIyTLwiRhaJ70lxDcA";
+const GEMINI_MODEL = "gemini-2.0-flash";
 const AVATAR_POOL = ["🦊","🐱","🐶","🐼","🦁","🐸","🐧","🦄","🐵","🐯",
   "😎","🥶","😈","🥷","👑","🐺","🐉","🦅","🦂","🦈",
   "👽","🤖","💀","👻","👾","🗿","💎","🔥","⚡","🎭",
@@ -2421,6 +2416,7 @@ function enterRevealScreen(room){
   state.invalidMarks = {};
   playStopSound();
   renderRevealTable(room);
+  if (state.isHost) runAIValidationAndScore(room);
 }
 
 function updateRevealLive(room){
@@ -2445,29 +2441,11 @@ async function renderRevealTable(room){
       const val = (answers[pid] && answers[pid][idx]) ? answers[pid][idx] : "";
       const markKey = `${pid}_${idx}`;
       const isMarked = !!state.invalidMarks[markKey];
-      const cellId = `cell-${pid}-${idx}`;
-      html += `<td id="${cellId}" class="${isMarked?'marked-invalid':''}" data-mark-key="${markKey}">
-                 ${escapeHtml(val) || "<em>vazio</em>"}
-                 ${state.isHost && val ? `<div class="invalid-toggle ${isMarked?'marked':''}" data-toggle="${markKey}">marcar inválida</div>` : ""}
-               </td>`;
+      html += `<td class="${isMarked?'marked-invalid':''}">${escapeHtml(val) || "<em>vazio</em>"}</td>`;
     });
     html += "</tr>";
   });
   table.innerHTML = html;
-
-  if (state.isHost){
-    table.querySelectorAll("[data-toggle]").forEach(el=>{
-      el.onclick = ()=>{
-        const key = el.dataset.toggle;
-        state.invalidMarks[key] = !state.invalidMarks[key];
-        renderRevealTable(room);
-      };
-    });
-  }
-
-  document.getElementById("btn-confirm-scores").style.display = state.isHost ? "block" : "none";
-  document.getElementById("reveal-wait-msg").style.display = state.isHost ? "none" : "block";
-  document.getElementById("reveal-hint").style.display = state.isHost ? "block" : "none";
 
   buildAIVerificationText(room, answers);
 }
@@ -2518,27 +2496,113 @@ document.getElementById("btn-copy-ai-text").onclick = ()=>{
   setTimeout(()=> btn.textContent = original, 1500);
 };
 
-document.getElementById("btn-confirm-scores").onclick = async ()=>{
-  const room = state.currentRoomData;
+/* ============================================================================
+   VALIDAÇÃO AUTOMÁTICA DAS RESPOSTAS COM IA (Gemini)
+   ----------------------------------------------------------------------------
+   Em vez do host marcar manualmente o que é inválido, a própria IA decide.
+   Só o HOST dispara essa chamada (porque só o host tem permissão de escrever
+   pontuação — ver regras do Firebase). Se a IA falhar por qualquer motivo
+   (sem internet, chave inválida, cota excedida), o jogo não trava: calcula a
+   pontuação só com a checagem automática de sempre (letra certa + unicidade),
+   sem invalidar nada por conta própria.
+============================================================================ */
+async function runAIValidationAndScore(room){
+  const statusEl = document.getElementById("reveal-status-msg");
   const roundNum = room.currentRound;
   const categories = room.settings.categories;
-  const players = room.players;
+  const playerIds = Object.keys(room.players || {});
 
   const answersSnap = await db.ref(`rooms/${state.roomId}/rounds/${roundNum}/answers`).get();
   const answers = answersSnap.val() || {};
+
+  statusEl.textContent = "A IA está validando as respostas...";
+
+  let aiInvalidMarks = {};
+  try{
+    aiInvalidMarks = await validateAnswersWithGemini(room, playerIds, categories, answers);
+  }catch(e){
+    console.error("Falha na validação por IA, calculando só com a checagem automática:", e);
+  }
+
+  state.invalidMarks = aiInvalidMarks;
+  renderRevealTable(room);
+  statusEl.textContent = "Calculando pontuação...";
+
+  await finalizeScoresForRound(room, answers, aiInvalidMarks);
+}
+
+async function validateAnswersWithGemini(room, playerIds, categories, answers){
+  const letter = room.currentLetter;
+
+  let prompt = `Você é o juiz de uma partida de Stop/Adedonha. A letra sorteada foi "${letter}". `;
+  prompt += `As categorias, nesta ordem, são: ${categories.join(", ")}.\n\n`;
+  prompt += `Para cada jogador abaixo estão as respostas dele, na mesma ordem das categorias, separadas por "|". `;
+  prompt += `Uma resposta é VÁLIDA somente se: começa com a letra "${letter}" (ignorando maiúsculas/minúsculas e acentos), `;
+  prompt += `é uma palavra ou nome real/plausível, e faz sentido pra aquela categoria específica. `;
+  prompt += `Respostas vazias ("-"), inventadas, ou que não comecem com a letra certa são INVÁLIDAS.\n\n`;
+
+  playerIds.forEach((pid, idx)=>{
+    const values = categories.map((cat, catIdx)=>{
+      const val = (answers[pid] && answers[pid][catIdx]) ? answers[pid][catIdx].trim() : "";
+      return val || "-";
+    });
+    prompt += `Jogador ${idx + 1}: ${values.join(" | ")}\n`;
+  });
+
+  prompt += `\nResponda APENAS no formato abaixo, uma linha por jogador, na mesma ordem acima, escrevendo `;
+  prompt += `"valido" ou "invalido" pra cada categoria na mesma ordem das categorias, separados por vírgula. `;
+  prompt += `Não escreva mais nada além disso, nenhuma explicação.\n\n`;
+  prompt += `Jogador 1: valido, invalido, valido, ...\nJogador 2: ...`;
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    }
+  );
+
+  if (!response.ok){
+    throw new Error("Gemini respondeu com erro HTTP " + response.status);
+  }
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+  const marks = {};
+  text.split("\n").forEach(line=>{
+    const match = line.match(/Jogador\s*(\d+)\s*:\s*(.+)/i);
+    if (!match) return;
+    const playerIndex = parseInt(match[1], 10) - 1;
+    const pid = playerIds[playerIndex];
+    if (!pid) return;
+    const tokens = match[2].split(",").map(t => t.trim().toLowerCase());
+    tokens.forEach((token, catIdx)=>{
+      if (catIdx >= categories.length) return;
+      if (token.includes("inval")) marks[`${pid}_${catIdx}`] = true;
+    });
+  });
+
+  return marks;
+}
+
+async function finalizeScoresForRound(room, answers, invalidMarks){
+  const roundNum = room.currentRound;
+  const categories = room.settings.categories;
+  const players = room.players;
 
   const scores = {};
   Object.keys(players).forEach(pid => scores[pid] = 0);
 
   categories.forEach((cat, idx)=>{
-    // agrupa respostas válidas (não vazias, não marcadas como inválidas, corretas quanto à letra)
+    // agrupa respostas válidas (não vazias, não marcadas como inválidas pela IA, corretas quanto à letra)
     const valuesByPlayer = {};
     Object.keys(players).forEach(pid=>{
       const key = `${pid}_${idx}`;
       const raw = (answers[pid] && answers[pid][idx]) ? answers[pid][idx].trim() : "";
-      const invalidByHost = !!state.invalidMarks[key];
+      const invalidByAI = !!invalidMarks[key];
       const startsRight = raw && raw[0].toUpperCase() === room.currentLetter;
-      valuesByPlayer[pid] = (raw && startsRight && !invalidByHost) ? raw.toLowerCase() : null;
+      valuesByPlayer[pid] = (raw && startsRight && !invalidByAI) ? raw.toLowerCase() : null;
     });
 
     const counts = {};
@@ -2560,7 +2624,7 @@ document.getElementById("btn-confirm-scores").onclick = async ()=>{
   updates["status"] = "scoreboard";
 
   await db.ref("rooms/" + state.roomId).update(updates);
-};
+}
 
 /* ============================================================================
    PLACAR DA RODADA

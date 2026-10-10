@@ -457,7 +457,7 @@
 
   <h1 class="brand">Adedonha</h1>
   <div class="brand-sub">— MULTIPLAYER ONLINE —</div>
-  <span class="version-tag">v2.4</span>
+  <span class="version-tag">v2.5</span>
 
   <div id="config-warning" class="config-warning" style="display:none;"></div>
 
@@ -2497,69 +2497,177 @@ document.getElementById("btn-copy-ai-text").onclick = ()=>{
 };
 
 /* ============================================================================
-   VALIDAÇÃO AUTOMÁTICA DAS RESPOSTAS COM IA (Gemini)
+   VALIDAÇÃO AUTOMÁTICA DAS RESPOSTAS — FAIL-CLOSED (tudo começa inválido)
    ----------------------------------------------------------------------------
-   Em vez do host marcar manualmente o que é inválido, a própria IA decide.
-   Só o HOST dispara essa chamada (porque só o host tem permissão de escrever
-   pontuação — ver regras do Firebase). Se a IA falhar por qualquer motivo
-   (sem internet, chave inválida, cota excedida), o jogo não trava: calcula a
-   pontuação só com a checagem automática de sempre (letra certa + unicidade),
-   sem invalidar nada por conta própria.
+   Princípio central: uma resposta só conta ponto se passar em TODOS os
+   filtros abaixo. Qualquer falha de rede, de formatação da resposta da IA,
+   ou ausência de veredito pra uma célula específica resulta em INVÁLIDA,
+   nunca em válida por omissão — ao contrário da versão anterior, que fazia
+   o oposto (só invalidava o que a IA dissesse explicitamente "inválido", e
+   tudo o mais virava válido por padrão).
+
+   Ordem das checagens, para cada resposta:
+   1. Vazia, curta demais, ou evasiva/genérica ("não sei", "???", etc.)
+      → INVÁLIDA, decidido aqui no código, sem perguntar nada pra IA.
+   2. Começa com a letra sorteada (comparação feita AQUI, com acentos
+      normalizados) → se não começar, INVÁLIDA. A IA nunca decide isso
+      sozinha; essa checagem é sempre recalculada de forma independente.
+   3. Só então a resposta é enviada pra IA, que julga exclusivamente se
+      ela de fato pertence à categoria (uma palavra real não é válida pra
+      qualquer categoria — "Mesa" não é Animal, "Macaco" não é Objeto).
+      Se a IA não responder claramente "true" pra essa célula específica,
+      o resultado fica INVÁLIDA (fail-closed) — nunca válida por omissão.
+============================================================================ */
+
+// respostas evasivas/sem significado real — sempre inválidas, não importa a letra
+const GENERIC_REJECT_PHRASES = [
+  "nao sei","sei la","sei nao","nao sei nao","nao faco ideia","nao tenho ideia",
+  "nao lembro","nao consigo lembrar","qualquer coisa","qualquer um","nada",
+  "nenhum","nenhuma","nao tem","nao existe","nao ha","branco","vazio",
+  "idk","n sei","nsei","sei"
+];
+
+function normalizeForMatch(str){
+  return (str || "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, ""); // remove acentos (á->a, ç->c, etc.)
+}
+
+// Filtros locais que, sozinhos, já reprovam uma resposta — sem depender da IA.
+function isHardRejectedAnswer(raw){
+  const norm = normalizeForMatch(raw).replace(/\s+/g, " ").trim();
+  if (!norm) return true;                              // vazia
+  if (norm.replace(/\s/g,"").length < 2) return true;   // curta demais pra identificar algo
+  if (GENERIC_REJECT_PHRASES.includes(norm)) return true; // evasiva/genérica
+  const noSpaces = norm.replace(/\s/g,"");
+  if (/^(.)\1+$/.test(noSpaces)) return true;           // mesmo caractere repetido ("aaaa", "????")
+  if (!/[a-z]/.test(norm)) return true;                 // sem nenhuma letra (só números/símbolos)
+  return false;
+}
+
+// Checagem de letra — SEMPRE feita aqui no código, nunca delegada à IA.
+function answerStartsWithLetter(raw, letter){
+  const normAnswer = normalizeForMatch(raw);
+  const normLetter = normalizeForMatch(letter);
+  return normAnswer.length > 0 && normLetter.length > 0 && normAnswer[0] === normLetter[0];
+}
+
+/* ============================================================================
+   Dispara a validação ao entrar na tela de revelação. Só o HOST executa
+   (só ele tem permissão de escrever pontuação — ver regras do Firebase).
 ============================================================================ */
 async function runAIValidationAndScore(room){
   const statusEl = document.getElementById("reveal-status-msg");
   const roundNum = room.currentRound;
   const categories = room.settings.categories;
   const playerIds = Object.keys(room.players || {});
+  const letter = room.currentLetter;
 
   const answersSnap = await db.ref(`rooms/${state.roomId}/rounds/${roundNum}/answers`).get();
   const answers = answersSnap.val() || {};
 
   statusEl.textContent = "A IA está validando as respostas...";
 
-  let aiInvalidMarks = {};
+  let finalInvalidMarks;
   try{
-    aiInvalidMarks = await validateAnswersWithGemini(room, playerIds, categories, answers);
+    const aiValidityMap = await validateAnswersWithGemini(letter, playerIds, categories, answers);
+    finalInvalidMarks = computeFinalInvalidMarks(letter, playerIds, categories, answers, aiValidityMap);
   }catch(e){
-    console.error("Falha na validação por IA, calculando só com a checagem automática:", e);
+    console.error("Falha na validação por IA — aplicando só os filtros locais (letra, vazio, respostas evasivas):", e);
+    // Sem a IA disponível não dá pra confirmar o pertencimento à categoria,
+    // mas os filtros locais continuam valendo normalmente: letra errada,
+    // resposta vazia e respostas evasivas continuam sempre inválidas.
+    finalInvalidMarks = computeFinalInvalidMarks(letter, playerIds, categories, answers, {});
   }
 
-  state.invalidMarks = aiInvalidMarks;
+  state.invalidMarks = finalInvalidMarks;
   renderRevealTable(room);
   statusEl.textContent = "Calculando pontuação...";
 
-  await finalizeScoresForRound(room, answers, aiInvalidMarks);
+  await finalizeScoresForRound(room, answers, finalInvalidMarks);
 }
 
-async function validateAnswersWithGemini(room, playerIds, categories, answers){
-  const letter = room.currentLetter;
+/* ============================================================================
+   Combina os filtros locais com o veredito da IA. Essa é a ÚNICA função que
+   decide a validade final de cada resposta — nem a IA, nem nenhuma outra
+   parte do código, tem autoridade sozinha sobre esse resultado.
+============================================================================ */
+function computeFinalInvalidMarks(letter, playerIds, categories, answers, aiValidityMap){
+  const invalidMarks = {};
+  playerIds.forEach(pid=>{
+    categories.forEach((cat, catIdx)=>{
+      const raw = (answers[pid] && answers[pid][catIdx]) ? answers[pid][catIdx].trim() : "";
+      const key = `${pid}_${catIdx}`;
 
-  let prompt = `Você é o juiz de uma partida de Stop/Adedonha. A letra sorteada foi "${letter}". `;
-  prompt += `As categorias, nesta ordem, são: ${categories.join(", ")}.\n\n`;
-  prompt += `Para cada jogador abaixo estão as respostas dele, na mesma ordem das categorias, separadas por "|". `;
-  prompt += `Uma resposta é VÁLIDA somente se: começa com a letra "${letter}" (ignorando maiúsculas/minúsculas e acentos), `;
-  prompt += `é uma palavra ou nome real/plausível, e faz sentido pra aquela categoria específica. `;
-  prompt += `Respostas vazias ("-"), inventadas, ou que não comecem com a letra certa são INVÁLIDAS.\n\n`;
+      if (isHardRejectedAnswer(raw)){ invalidMarks[key] = true; return; }
+      if (!answerStartsWithLetter(raw, letter)){ invalidMarks[key] = true; return; }
 
-  playerIds.forEach((pid, idx)=>{
-    const values = categories.map((cat, catIdx)=>{
-      const val = (answers[pid] && answers[pid][catIdx]) ? answers[pid][catIdx].trim() : "";
-      return val || "-";
+      // passou nos filtros locais — a palavra em si existe e começa com a
+      // letra certa, mas só conta ponto se a IA confirmar que pertence à
+      // categoria. Se a IA não respondeu claramente "true" pra essa célula
+      // (falha, item ausente, formato inesperado), o padrão é INVÁLIDA.
+      invalidMarks[key] = aiValidityMap[key] !== true;
     });
-    prompt += `Jogador ${idx + 1}: ${values.join(" | ")}\n`;
+  });
+  return invalidMarks;
+}
+
+/* ============================================================================
+   Pergunta pra IA, usando resposta em JSON estruturado, SOMENTE sobre as
+   categorias que já passaram nos filtros locais (vazio/evasiva/letra errada
+   já foram descartadas antes, sem gastar chamada de IA com isso). A IA
+   avalia exclusivamente se a resposta pertence de fato à categoria.
+============================================================================ */
+async function validateAnswersWithGemini(letter, playerIds, categories, answers){
+  const cells = [];
+  playerIds.forEach(pid=>{
+    categories.forEach((cat, catIdx)=>{
+      const raw = (answers[pid] && answers[pid][catIdx]) ? answers[pid][catIdx].trim() : "";
+      if (isHardRejectedAnswer(raw)) return;
+      if (!answerStartsWithLetter(raw, letter)) return;
+      cells.push({ pid, catIdx, categoria: categories[catIdx], resposta: raw });
+    });
   });
 
-  prompt += `\nResponda APENAS no formato abaixo, uma linha por jogador, na mesma ordem acima, escrevendo `;
-  prompt += `"valido" ou "invalido" pra cada categoria na mesma ordem das categorias, separados por vírgula. `;
-  prompt += `Não escreva mais nada além disso, nenhuma explicação.\n\n`;
-  prompt += `Jogador 1: valido, invalido, valido, ...\nJogador 2: ...`;
+  if (cells.length === 0) return {}; // nada passou nos filtros locais — nem precisa perguntar pra IA
+
+  const itemsForPrompt = cells.map((c, i)=> ({ index: i + 1, categoria: c.categoria, resposta: c.resposta }));
+
+  let prompt = `Você é um juiz RIGOROSO de uma partida de Stop/Adedonha.\n\n`;
+  prompt += `Avalie CADA item da lista abaixo e decida se a resposta dada realmente identifica, de forma clara, `;
+  prompt += `um elemento que pertence à categoria informada.\n\n`;
+  prompt += `Regras obrigatórias:\n`;
+  prompt += `1. Uma palavra real não é válida pra qualquer categoria. Exemplos de respostas INVÁLIDAS mesmo sendo `;
+  prompt += `palavras reais do idioma: "Mesa" não é um Animal; "Macaco" não é um Objeto; "Azul" não é uma Fruta.\n`;
+  prompt += `2. Respostas evasivas, genéricas ou sem significado real (como "não sei", "sei lá", "qualquer coisa", `;
+  prompt += `"não lembro", "???", sequências aleatórias de caracteres) são sempre INVÁLIDAS, mesmo que pareçam `;
+  prompt += `começar com a letra certa — rejeite qualquer resposta desse tipo.\n`;
+  prompt += `3. Não aceite uma resposta só porque ela contém uma palavra válida dentro de uma frase maior ou `;
+  prompt += `irrelevante — avalie exatamente a resposta fornecida, como um todo.\n`;
+  prompt += `4. Não invente justificativas pra aprovar uma resposta duvidosa. Na dúvida genuína sobre se pertence `;
+  prompt += `à categoria, marque como INVÁLIDA.\n`;
+  prompt += `5. NÃO avalie se a resposta começa com a letra certa — isso já foi conferido por outro sistema, de `;
+  prompt += `forma independente. Avalie exclusivamente o pertencimento à categoria e a regra 2 acima.\n\n`;
+  prompt += `Itens para avaliar (responda sobre TODOS, na mesma ordem):\n`;
+  prompt += JSON.stringify(itemsForPrompt) + "\n\n";
+  prompt += `Responda SOMENTE com um array JSON, sem nenhum texto antes ou depois, neste formato exato, um `;
+  prompt += `objeto por item, na mesma ordem:\n`;
+  prompt += `[{"index": 1, "categoria": "...", "resposta": "...", "valida": true, "justificativa": "..."}]\n`;
+  prompt += `"valida" deve ser exatamente o booleano true ou false (nunca string, nunca nulo, nunca ausente). `;
+  prompt += `"justificativa" deve ter no máximo 12 palavras.`;
 
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      })
     }
   );
 
@@ -2569,23 +2677,33 @@ async function validateAnswersWithGemini(room, playerIds, categories, answers){
   const data = await response.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-  const marks = {};
-  text.split("\n").forEach(line=>{
-    const match = line.match(/Jogador\s*(\d+)\s*:\s*(.+)/i);
-    if (!match) return;
-    const playerIndex = parseInt(match[1], 10) - 1;
-    const pid = playerIds[playerIndex];
-    if (!pid) return;
-    const tokens = match[2].split(",").map(t => t.trim().toLowerCase());
-    tokens.forEach((token, catIdx)=>{
-      if (catIdx >= categories.length) return;
-      if (token.includes("inval")) marks[`${pid}_${catIdx}`] = true;
-    });
+  let parsed;
+  try{
+    parsed = JSON.parse(text);
+  }catch(e){
+    // mesmo pedindo JSON puro, às vezes vem algum texto extra em volta —
+    // tenta extrair só o trecho entre o primeiro "[" e o último "]"
+    const match = text.match(/\[[\s\S]*\]/);
+    if (!match) throw new Error("Resposta da IA não veio em JSON válido: " + text.slice(0, 200));
+    parsed = JSON.parse(match[0]);
+  }
+  if (!Array.isArray(parsed)) throw new Error("Resposta da IA não é uma lista JSON.");
+
+  const validityMap = {};
+  parsed.forEach(item=>{
+    const idx = Number(item.index) - 1;
+    const cell = cells[idx];
+    if (!cell) return; // índice fora do esperado — fica de fora do mapa = inválida por padrão
+    validityMap[`${cell.pid}_${cell.catIdx}`] = item.valida === true; // só exatamente `true` conta como válida
   });
 
-  return marks;
+  return validityMap;
 }
 
+/* ============================================================================
+   Calcula e grava a pontuação da rodada a partir do veredito final
+   (computeFinalInvalidMarks). Não reavalia nada — só soma pontos.
+============================================================================ */
 async function finalizeScoresForRound(room, answers, invalidMarks){
   const roundNum = room.currentRound;
   const categories = room.settings.categories;
@@ -2595,14 +2713,12 @@ async function finalizeScoresForRound(room, answers, invalidMarks){
   Object.keys(players).forEach(pid => scores[pid] = 0);
 
   categories.forEach((cat, idx)=>{
-    // agrupa respostas válidas (não vazias, não marcadas como inválidas pela IA, corretas quanto à letra)
     const valuesByPlayer = {};
     Object.keys(players).forEach(pid=>{
       const key = `${pid}_${idx}`;
       const raw = (answers[pid] && answers[pid][idx]) ? answers[pid][idx].trim() : "";
-      const invalidByAI = !!invalidMarks[key];
-      const startsRight = raw && raw[0].toUpperCase() === room.currentLetter;
-      valuesByPlayer[pid] = (raw && startsRight && !invalidByAI) ? raw.toLowerCase() : null;
+      const isValid = raw && !invalidMarks[key];
+      valuesByPlayer[pid] = isValid ? normalizeForMatch(raw) : null;
     });
 
     const counts = {};
@@ -2611,7 +2727,7 @@ async function finalizeScoresForRound(room, answers, invalidMarks){
     });
 
     Object.entries(valuesByPlayer).forEach(([pid, v])=>{
-      if (!v) return; // vazio, inválido ou letra errada = 0 pontos
+      if (!v) return; // vazio ou inválido = 0 pontos
       scores[pid] += counts[v] === 1 ? 10 : 5; // única = 10, repetida = 5
     });
   });
